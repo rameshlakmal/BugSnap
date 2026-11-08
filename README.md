@@ -1,130 +1,249 @@
-# BugSnap: internal screen recorder and bug reporter
+<div align="center">
 
-Record a browser tab or the whole screen, with console logs, network logs, environment details and a readable list of user steps. Share the result as a short link that opens in a player with everything synced to the video.
+<img src="extension/icons/logo.svg" width="88" alt="BugSnap logo" />
 
-Plan and phases: see the "Screen Recorder & Bug Reporter: Build Plan" doc.
+# BugSnap
 
-**Settings:** panel → gear (or right-click the BugSnap icon → Options). One page for your name, server, location, Google Drive, AI reports, GitHub and shortcuts; changes save as you make them.
+**Record a bug once. Share one link with everything a developer needs.**
 
-**Screenshots:** panel → *Capture screenshot* or Alt+Shift+S. Drag to select an area (Enter = whole visible page, Esc = cancel). The editor opens in a new tab: arrow, box, highlight, pen, text, numbered markers and blur, six colours, four thicknesses ([ and ]), undo/redo (Ctrl+Z / Ctrl+Y). Click a mark to select it: drag to move, drag its handles to adjust (arrow ends, box corners), arrow keys to nudge, double-click text to edit, Delete to remove; colour and thickness apply to the selected mark. Ctrl+C or *Copy image* copies the annotated PNG; Download saves it. It is **saved the moment the editor opens** (listed under *Screenshots*, shared on Drive like a recording), and every change saves automatically. *Annotate* on a screenshot in Recordings or the player reopens it with its marks still editable; the unmarked original stays on this computer and is never shared. Screenshots capture the visible page and its details (URL, browser, OS, viewport); console and network logs are only captured in recordings.
+Screen recordings and screenshots with console logs, network requests, user steps and an AI-written bug report, all in one shareable player.
 
-**AI bug reports:** in the player's *Report* tab, describe what happened, pick *Bug* or *Suggestion* and click *Write with Claude*. Reports are written by the provider you pick in **BugSnap Settings → AI reports**: Claude Code on this computer (your Claude plan, no key), an API key for Anthropic, OpenAI, Google Gemini or OpenRouter (the model list comes from the provider), or local models through Ollama (free, nothing leaves your PC). It writes the issue in the team template: title `Page - problem` (or `[suggestion] Page - It would be better to …`), Description, Preconditions, Steps to reproduce, Attachments, Actual result, Expected result. Claude Code needs to be installed and signed in (`claude` once in a terminal); an API key is saved only in `server/data/ai.json` (or set `ANTHROPIC_API_KEY`). Optional: `CLAUDE_CODE_PATH`, `AI_MODEL` (Claude Code model, default `sonnet`).
+![Chrome](https://img.shields.io/badge/Chrome%20%2F%20Edge-Manifest%20V3-18181b?style=flat-square&logo=googlechrome&logoColor=white)
+![Node](https://img.shields.io/badge/Node-22.9%2B-18181b?style=flat-square&logo=nodedotjs&logoColor=white)
+![Google Drive](https://img.shields.io/badge/Sharing-Google%20Drive-18181b?style=flat-square&logo=googledrive&logoColor=white)
+![AI](https://img.shields.io/badge/AI%20reports-Claude%20%C2%B7%20OpenAI%20%C2%B7%20Gemini%20%C2%B7%20Ollama-e5484d?style=flat-square)
 
-**GitHub issues:** in the player, *Send to GitHub* opens a form pre-filled from the report (title and description), with the repository, labels, assignees and milestone. *Create issue* files it and links it to the recording (#12 badge in Recordings, link in the player). Set up once in **BugSnap Settings → GitHub** with a fine-grained token: repository access to your bug repos, permission **Issues: Read and write**. The token is stored only in `server/data/github.json` (or set `GITHUB_TOKEN`).
+<img src="docs/images/player.png" alt="BugSnap player with the video on the left and DevTools steps on the right" width="900" />
 
-**Sharing:** finished recordings upload to your Google Drive and get a public link to your player on GitHub Pages. Setup: [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md). Without it, recordings stay on this computer.
+</div>
 
-## Status
+---
 
-| Phase | Scope | State |
-|---|---|---|
-| 1 | Tab and desktop recording, metadata, console/network/actions capture, readable steps, local storage, viewer with short link and synced timeline, bug report draft (template) | **Built** |
-| 1.1 | New design language, in-page control bar (countdown, pause/resume, stop, discard), redesigned screen picker window, reliability and security fixes | **Built** |
-| 1.2 | Recordings window, rounded panel, Figtree type, Google Drive sharing with a public GitHub Pages player | **Built** |
-| 1.3 | Graphite + red design, Jam-style player (custom controls, DevTools panel), review screen, share link reserved at start, Drive fallback player, tooltips | **Built** |
-| 2 | Area screenshots with annotation, AI bug reports (Claude Code or API key), GitHub issues | **Built** |
-| 3 | Redaction rules UI, MP4 transcode, instant replay, voice narration, retention, Intune rollout | Later |
+## Why BugSnap?
 
-## Layout
+Writing a good bug report takes longer than finding the bug. BugSnap does the boring part for you:
+
+| You do | BugSnap does |
+|---|---|
+| Click **Record this tab** and reproduce the bug | Captures the video, every click and keystroke as plain sentences, console errors, failed requests, browser, OS and screen size |
+| Type what went wrong, in any language (English, Sinhala, Singlish…) | Writes a clean English bug report in your team's template |
+| Click **Copy link** | Gives you a public link that opens in a fast player, even before the upload finishes |
+| Click **Send to GitHub** | Files the issue with labels, assignees and the recording linked |
+
+---
+
+## Features
+
+### 🎥 Record a tab or your whole screen
+
+A small control bar sits at the bottom of the page while you record: countdown, pause, stop and discard. Nothing opens or jumps around when you stop; the bar just says **Saved** with a **Copy link** button.
+
+<p align="center"><img src="docs/images/control-bar.png" alt="Recording control bar: starting, countdown, recording and paused states" width="420" /></p>
+
+### 🧭 A player built for debugging
+
+Video on the left, DevTools on the right, synced to the timeline.
+
+- **Steps**: `Clicks the "Pricing" link`, `Types "…" into the "Email" field`. Click a step to jump to that moment.
+- **Console** and **Network**: errors and failed requests are colour-coded and shown as red dots on the progress bar.
+- **Info**: browser, OS, window size, time zone and every page visited.
+- Keyboard controls (Space, J/L, M, F), resizable panel, and **Copy link at 0:07** to point at an exact moment.
+
+### ✨ AI bug reports
+
+Describe the problem in a sentence, pick **Bug** or **Suggestion**, and click **Write with Claude**. BugSnap combines your words with the steps, errors and environment it captured, and writes:
 
 ```
-extension/   Chrome/Edge extension (Manifest V3, plain JavaScript, no build step)
-  background.js      service worker: start/stop, metadata, navigation tracking, event routing
-  page-hook.js       runs in the page: console, errors, fetch, XHR (injected only while recording)
-  content.js         isolated world: relays page events, records user actions as sentences
-  overlay.js         floating control bar on the recorded page (countdown, timer, pause, stop, discard)
-  ui.css             design tokens and components (shared with server/public/tokens.css)
-  lib/icons*.js      bundled Phosphor icons (full set for extension pages, small set for pages)
-  fonts/             self-hosted Figtree (UI) and Geist Mono (logs)
-  recorder-core.js   MediaRecorder, chunked upload, environment details (OS, browser, location)
-  offscreen.*        hosts tab recordings (chrome.tabCapture)
-  recorder.*         window that hosts the screen/window choice and Chrome's picker (getDisplayMedia)
-  popup.*            record, stop, last recording, settings
-  panel.js           shows popup.html in a rounded in-page panel on toolbar click
-                     (Chrome's own popup is used on chrome://, Web Store and PDF pages)
-  snip.js            area selection on the page for screenshots
-  snap.*             screenshot editor (annotations, title, save and share)
-  library.*          Recordings window: thumbnail grid, hover preview, click to play
-                     (same files served by the server as its home page)
-server/      Node + Express
-  src/index.js       API, local player (/r/:id), settings page, Drive upload queue
-  src/github.js      GitHub issues (fine-grained token, repos, labels, assignees, create)
-  src/ai.js          AI bug reports: Claude Code (print mode, restricted) or the Claude API (@anthropic-ai/sdk)
-  src/drive.js       Google Drive: sign-in, BugSnap folder, resumable upload, "anyone with link" sharing
-  src/storage/       local working copies (video, poster, events)
-  scripts/build-viewer.js  builds the public player for GitHub Pages into ../viewer-site
-  src/media.js       ffmpeg remux so browser WebM becomes seekable, plus poster frame
-  public/            player (local and public), recordings grid, settings
-  test/smoke.js      end-to-end API test
-  test/drive-mock.js Drive publishing against a fake Google (resume, manifest, sharing)
+Pricing Page - Start trial button does nothing
+[suggestion] Pricing Page - It would be better to …
+
+Description · Preconditions · Steps to reproduce · Attachments · Actual result · Expected result
 ```
 
-## Run it
+<p align="center"><img src="docs/images/ai-report.png" alt="Report tab with a description and an AI-written bug report" width="900" /></p>
 
-Requirements: Node 22.9+, Chrome or Edge 116+, ffmpeg on PATH (optional, but needed for smooth seeking and thumbnails).
+Choose who writes the report:
+
+| Provider | What you need |
+|---|---|
+| **Claude Code** (default) | Claude Code installed and signed in. Uses your Claude plan, no API key. |
+| **Anthropic** | API key |
+| **OpenAI** | API key |
+| **Google Gemini** | API key from Google AI Studio |
+| **OpenRouter** | One key for hundreds of models |
+| **Ollama** | Free local models. Nothing leaves your computer. |
+
+### 📸 Screenshots with annotation
+
+Press **Alt+Shift+S**, drag over the area you want, and mark it up: arrows, boxes, highlight, pen, text, numbered markers and blur, in six colours and four thicknesses. Every mark can be moved and resized later.
+
+- **Ctrl+C** copies the annotated image, ready to paste anywhere.
+- Screenshots **save automatically** the moment the editor opens, so you never lose one.
+- Reopen any screenshot later with **Annotate** and keep editing.
+
+<p align="center"><img src="docs/images/screenshot-editor.png" alt="Screenshot editor with toolbar, an arrow and page details" width="900" /></p>
+
+### 🐙 GitHub issues in one click
+
+**Send to GitHub** opens a form already filled from the report. Pick the repository, labels, assignees and milestone, then **Create issue**. The issue number shows on the recording so you can find it again.
+
+### 🗂️ All your recordings in one place
+
+Every recording and screenshot lands in **All recordings**, even if you never copied the link. Filter by tab, screen, screenshots or recordings with errors, search with **Ctrl+K**, and hover a card to preview it.
+
+<p align="center"><img src="docs/images/recordings.png" alt="All recordings window with thumbnails, error badges and a GitHub issue badge" width="900" /></p>
+
+### ⚙️ Simple settings
+
+Everything is on one page, opened from the gear in the extension: your name, server, Google Drive, AI provider, GitHub and keyboard shortcuts. Changes save as you make them.
+
+<p align="center"><img src="docs/images/settings.png" alt="BugSnap settings page" width="760" /></p>
+
+---
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["🧩 Extension<br/>record · screenshot"] -->|video + logs| B["🖥️ Local server<br/>ffmpeg · AI · GitHub"]
+    B -->|upload, anyone with link| C["☁️ Google Drive"]
+    D["🌐 Public player<br/>GitHub Pages"] -->|streams from| C
+    E["👀 Anyone with the link"] --> D
+```
+
+1. The **extension** records the video and everything happening on the page.
+2. The **local server** on your computer makes the video seekable, builds the thumbnail and uploads it to **your Google Drive**.
+3. The **share link** opens a static player on GitHub Pages that streams straight from Drive. People watching don't need the server or an account.
+
+Your API keys and tokens stay on your computer, in `server/data`. They are never sent to the browser or to the public player.
+
+---
+
+## Quick start
+
+**You need:** Node 22.9+, Chrome or Edge 116+, and [ffmpeg](https://ffmpeg.org/download.html) on your PATH (for smooth seeking and thumbnails).
+
+**1. Start the server**
 
 ```bash
 cd server
 npm install
-npm start            # http://localhost:4800
-npm run smoke        # in another terminal: end-to-end check
-npm run test:drive   # Drive upload logic, offline
+cp .env.example .env   # optional settings
+npm start              # http://localhost:4800
 ```
 
-Settings go in `server/.env` (copy `server/.env.example`); it is loaded automatically.
+**2. Load the extension**
 
-Environment variables (all optional):
+1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
+2. Click **Load unpacked** and pick the `extension` folder.
+3. Pin BugSnap, click it, then the **gear** to open Settings and add your name.
+
+**3. Record your first bug**
+
+Click the BugSnap icon on any website, then **Record this tab**. Stop with the control bar or **Alt+Shift+X**.
+
+**4. Optional extras**
+
+- **Shareable links:** connect Google Drive by following [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md). Without it, recordings stay on your computer.
+- **AI reports:** Settings → AI reports. Pick a provider and add a key, or use Claude Code with no key.
+- **GitHub:** Settings → GitHub. Paste a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Issues: Read and write** on your bug repositories.
+
+> After pulling changes, restart the server and click the reload icon on the BugSnap card in `chrome://extensions`.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| **Alt+Shift+X** | Stop recording |
+| **Alt+Shift+P** | Pause or resume |
+| **Alt+Shift+S** | Take a screenshot |
+| **Ctrl+C** (in the editor) | Copy the annotated screenshot |
+| **Ctrl+K** (in Recordings) | Search |
+
+Change them at `chrome://extensions/shortcuts`.
+
+---
+
+<details>
+<summary><b>Configuration (server/.env)</b></summary>
+
+All optional.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `4800` | HTTP port |
-| `HOST` | `127.0.0.1` | Only this computer can reach the server. `0.0.0.0` to accept other machines (then set `UPLOAD_TOKEN`) |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | empty | Google Drive sign-in (see SETUP-GOOGLE-DRIVE.md) |
+| `HOST` | `127.0.0.1` | Only this computer can reach the server. Use `0.0.0.0` to accept other machines, and set `UPLOAD_TOKEN`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | empty | Google Drive sign-in (see [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md)) |
 | `DRIVE_API_KEY` | empty | Key the public player uses; only needed for `npm run build:viewer` |
 | `VIEWER_URL` | empty | Your GitHub Pages player, e.g. `https://you.github.io/bugsnap-viewer` |
 | `DRIVE_FOLDER_NAME` | `BugSnap` | Drive folder for uploads |
-| `PUBLIC_BASE_URL` | `http://localhost:PORT` | Base for share links, e.g. `https://rec.yourco.com` |
+| `PUBLIC_BASE_URL` | `http://localhost:PORT` | Base for local share links |
 | `UPLOAD_TOKEN` | empty | Shared secret the extension must send to upload. Set it on any shared server. |
 | `DATA_DIR` | `server/data` | Where recordings are stored |
 | `FFMPEG_PATH` | `ffmpeg` | ffmpeg binary |
-| `DISABLE_LIST` | empty | Set to `1` to hide the list of all recordings (it has no sign-in) |
+| `DISABLE_LIST` | empty | `1` hides the list of all recordings |
+| `ANTHROPIC_API_KEY` | empty | Anthropic key (can also be added in Settings) |
+| `CLAUDE_CODE_PATH`, `AI_MODEL` | auto, `sonnet` | Claude Code location and model |
+| `GITHUB_TOKEN` | empty | GitHub token (can also be added in Settings) |
 
-Load the extension:
+</details>
 
-1. Open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**.
-2. **Load unpacked** → select the `extension` folder.
-3. Pin BugSnap, open the popup → gear icon (**Settings**): check the server URL, add the upload token if you set one, and your name.
+<details>
+<summary><b>Project layout</b></summary>
 
-After pulling changes: restart the server, then press the reload icon on the extension card in `chrome://extensions`.
+```
+extension/               Chrome/Edge extension (Manifest V3, plain JavaScript, no build step)
+  background.js          service worker: start/stop, metadata, screenshots, routing
+  page-hook.js           console, errors, fetch and XHR capture (only while recording)
+  content.js             turns clicks and typing into readable steps
+  overlay.js             recording control bar on the page
+  panel.js               rounded in-page panel for the toolbar button
+  popup.*                record, screenshot, last recording
+  recorder.*, offscreen.*  screen and tab recording
+  snip.js, snap.*        area selection and screenshot editor
+  library.*              All recordings window
+  settings.*             settings page
+server/                  Node + Express
+  src/index.js           API, local player, Drive upload queue
+  src/drive.js           Google Drive: upload, sharing, manifests
+  src/ai.js              AI reports (Claude Code, Anthropic, OpenAI, Gemini, OpenRouter, Ollama)
+  src/github.js          GitHub issues
+  src/media.js           ffmpeg: seekable video and thumbnails
+  public/                player, recordings grid
+  scripts/build-viewer.js  builds the public player for GitHub Pages
+  test/                  end-to-end and Drive tests
+```
 
-## Manual test checklist (Phase 1)
+</details>
 
-- [ ] **Panel:** click the toolbar icon on a website: a rounded panel opens top-right. Clicking the page or pressing Esc closes it. On `chrome://extensions` the plain popup opens instead.
-- [ ] **Recordings window:** popup → grid icon or *All recordings*. Thumbnails show, hovering plays a muted preview, clicking opens the player in a browser tab. Opening it twice focuses the same window.
-- [ ] **Tab recording:** on any website click *Record this tab*. The panel closes at once and the dark control bar at the bottom shows *Starting…*, then a 3-2-1 countdown, then the timer. Click around, type in a field, trigger a console error (`console.error('test')` in DevTools), stop with the bar, the popup or Alt+Shift+X. The viewer opens.
-- [ ] **Control bar:** pause and resume (also Alt+Shift+P); the timer freezes while paused and the paused part is not in the video. Drag the bar by its handle; minimise it to a dot. *Discard* asks once more, then throws the recording away.
-- [ ] Steps tab shows sentences like `Clicks the "Pricing" link`, `Navigates to the "Pricing" page`; password fields show `Enters a hidden value`.
-- [ ] Console and Network tabs list entries; failed requests and errors are red and appear as red marks on the timeline.
-- [ ] Clicking a step seeks the video; playback highlights the current step.
-- [ ] Details tab shows OS (Windows 11 is detected correctly), browser, window/viewport size, time zone, location, visited URLs.
-- [ ] Report tab has a draft with preconditions, numbered steps and captured errors; *Copy as Markdown* works.
-- [ ] **Screen recording:** popup → *Screen* opens a small window sized to its content: pick *Screen*, *Window* or *Tab*, then *Start*. The window grows so Chrome's picker fits, opens on that choice, and shrinks back if you cancel. After the countdown it minimises and the control bar takes over. Tab switches and navigations appear as steps.
-- [ ] Cancelling Chrome's picker returns to the choice screen (no error, nothing saved).
-- [ ] Stopping via Chrome's own "Stop sharing" bar also saves the recording.
-- [ ] **Screenshot:** Alt+Shift+S on a website, drag an area, annotate (arrow, box, blur, number, text), *Save and copy link*. The link opens the image in the player; *Report → Write with Claude* works.
-- [ ] **GitHub:** Settings → GitHub → paste token → default repository. In a player: *Send to GitHub* → labels/assignees → *Create issue* → *Open on GitHub*.
-- [ ] **After stopping:** no new tab opens. The bar at the bottom shows *Saved · Copy link · Open* for about 10 seconds (hovering keeps it). *Copy link* copies the public link; *Open* opens the player with the review screen (title, description, delete).
-- [ ] **DevTools panel:** drag its left edge to resize (double-click resets); the width is remembered.
-- [ ] **Drive:** the share link exists from the start. Opened before the upload finishes it shows *Uploading…* and switches to the video by itself. Turning off Wi-Fi mid-upload shows *Retry* in the local player.
-- [ ] **Player:** custom controls (Space, J/L, M, F), red dots on the progress bar for errors with a label on hover, *Copy link ▾ → Copy link at 0:07*, DevTools panel (Info, Steps, Console, Network, Report).
-- [ ] Share link opens for someone else; *Pop out* opens the player in its own window; `#network`, `#console` etc. on a link open that tab.
+<details>
+<summary><b>Tests</b></summary>
 
-## Known limits
+```bash
+cd server
+npm run smoke        # end-to-end API check (server must be running)
+npm run test:drive   # Drive upload logic against a fake Google, offline
+```
 
-- Shared links are "anyone with the link": whoever has a link can watch that recording. Stop sharing one by setting its Drive files to Restricted.
-- The server must be running while you record and upload; viewers stream from Drive and don't need it.
-- Console and network capture hooks the page's own `console`, `fetch` and `XMLHttpRequest`. Requests from service workers, iframes and the browser itself (images, CSS) are not captured. Headers and cookies are never captured; token-like query parameters are redacted; response bodies are kept only for failed requests (first 2,000 characters).
+</details>
+
+<details>
+<summary><b>Known limits</b></summary>
+
+- Share links are "anyone with the link". To stop sharing one, set its Drive files to Restricted.
+- The server must be running while you record and upload; people watching only need the link.
+- Console and network capture covers the page's own `console`, `fetch` and `XMLHttpRequest`. Service workers, iframes, images and CSS are not captured. Headers and cookies are never captured, token-like query parameters are hidden, and response bodies are kept only for failed requests.
 - Recordings stop automatically after 30 minutes.
-- Desktop recordings capture video of anything, but logs and steps only come from browser tabs.
-- The control bar is part of the page, so it appears in tab recordings. Minimise it to a dot if it is in the way.
-- Chrome's own screen picker dialog cannot be restyled by extensions. The recorder window chooses which pane it opens on and gives it room.
+- Screen recordings capture any app on video, but steps and logs come only from browser tabs.
+- The control bar appears in tab recordings. Minimise it to a dot if it's in the way.
+- Screenshots capture the visible page and its details; console and network logs come only with recordings.
+
+</details>
+
+---
+
+<div align="center">
+
+Made for faster, clearer bug reports.
+
+</div>
