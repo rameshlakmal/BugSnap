@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Screenshot · BugSnap</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="snap.css" />
+  </head>
+  <body>
+    <header class="top">
+      <img class="mark" src="icons/logo-small.svg" alt="" />
+      <strong>Screenshot</strong>
+      <span class="crumb" id="pageName"></span>
+      <span class="spacer"></span>
+      <button class="btn ghost sm copy-btn" id="copyImage" data-tip="Copy the image to paste anywhere" data-kbd="Ctrl+C"><span class="swap"><span class="icon" data-icon="copy"></span><span class="icon ok-icon" data-icon="check"></span></span><span class="label">Copy image</span></button>
+      <a class="btn ghost icon-only sm" id="download" data-tip="Download PNG" download="screenshot.png"><span class="icon" data-icon="download-simple"></span></a>
+    </header>
+
+    <main class="layout">
+      <section class="stage-col">
+        <div class="toolbar" role="toolbar" aria-label="Annotation tools">
+          <div class="tools" id="tools">
+            <button class="tool on" data-tool="arrow" data-tip="Arrow" data-kbd="A"><span class="icon" data-icon="arrow-up-right"></span></button>
+            <button class="tool" data-tool="rect" data-tip="Box" data-kbd="R"><span class="icon" data-icon="square"></span></button>
+            <button class="tool" data-tool="highlight" data-tip="Highlight" data-kbd="H"><span class="icon" data-icon="highlighter-circle"></span></button>
+            <button class="tool" data-tool="pen" data-tip="Draw" data-kbd="P"><span class="icon" data-icon="pen-nib"></span></button>
+            <button class="tool" data-tool="text" data-tip="Text" data-kbd="T"><span class="icon" data-icon="text-t"></span></button>
+            <button class="tool" data-tool="number" data-tip="Numbered marker" data-kbd="N"><span class="icon" data-icon="number-circle-one"></span></button>
+            <button class="tool" data-tool="blur" data-tip="Blur private info" data-kbd="B"><span class="icon" data-icon="eye-slash"></span></button>
+          </div>
+          <span class="divider"></span>
+          <div class="colors" id="colors" role="radiogroup" aria-label="Colour">
+            <button class="color on" data-color="#e5484d" style="--c: #e5484d" data-tip="Red"></button>
+            <button class="color" data-color="#f5a524" style="--c: #f5a524" data-tip="Amber"></button>
+            <button class="color" data-color="#16a34a" style="--c: #16a34a" data-tip="Green"></button>
+            <button class="color" data-color="#2563eb" style="--c: #2563eb" data-tip="Blue"></button>
+            <button class="color" data-color="#18181b" style="--c: #18181b" data-tip="Black"></button>
+            <button class="color" data-color="#ffffff" style="--c: #ffffff" data-tip="White"></button>
+          </div>
+          <span class="divider"></span>
+          <div class="sizes" id="sizes" role="radiogroup" aria-label="Thickness">
+            <button class="size" data-size="0.6" data-tip="Thin" data-kbd="["><span style="--d: 3px"></span></button>
+            <button class="size on" data-size="1" data-tip="Medium"><span style="--d: 5px"></span></button>
+            <button class="size" data-size="1.6" data-tip="Thick"><span style="--d: 8px"></span></button>
+            <button class="size" data-size="2.4" data-tip="Heavy" data-kbd="]"><span style="--d: 11px"></span></button>
+          </div>
+          <span class="divider"></span>
+          <button class="tool" id="undo" data-tip="Undo" data-kbd="Ctrl+Z" disabled><span class="icon" data-icon="arrow-u-up-left"></span></button>
+          <button class="tool" id="redo" data-tip="Redo" data-kbd="Ctrl+Y" disabled><span class="icon" data-icon="arrow-u-up-right"></span></button>
+          <button class="tool" id="clear" data-tip="Remove all marks"><span class="icon" data-icon="trash"></span></button>
+        </div>
+        <div class="stage" id="stage">
+          <div class="canvas-wrap" id="wrap">
+            <canvas id="canvas"></canvas>
+          </div>
+          <div class="empty" id="empty" hidden>
+            <span class="icon" data-icon="camera"></span>
+            <strong>No screenshot to edit</strong>
+            <span>Take one with the BugSnap panel or Alt+Shift+S.</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <form id="form" class="form">
+          <div class="save-state" id="saveState" data-state="saving" role="status" aria-live="polite"><span class="dot"></span><span id="saveText">Saving…</span></div>
+          <div class="field"><label for="title">Title</label><input id="title" type="text" maxlength="200" autocomplete="off" /></div>
+          <div class="segmented" id="kind" role="group" aria-label="Type">
+            <button type="button" data-kind="bug" class="on" data-tip="Something is broken">Bug</button>
+            <button type="button" data-kind="suggestion" data-tip="Something could be better">Suggestion</button>
+          </div>
+          <div class="field grow"><label for="desc">What's wrong?</label><textarea id="desc" maxlength="5000" placeholder="e.g. The delete button in this popup should be red."></textarea></div>
+          <dl class="kv" id="meta"></dl>
+          <div class="alert" id="alert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="alertText"></span><button type="button" class="btn sm" id="retry" hidden>Retry</button></div>
+          <div class="share">
+            <label for="link">Share link</label>
+            <div class="linkrow">
+              <input id="link" type="text" readonly placeholder="Getting your link…" />
+              <button type="button" class="btn primary copy-link" id="copyLink" disabled><span class="icon" data-icon="link-simple"></span><span>Copy link</span></button>
+            </div>
+            <span class="help" id="linkNote">Saved automatically, even if you close this tab.</span>
+          </div>
+          <div class="row2">
+            <button type="button" class="btn" id="open" disabled data-tip="Open in the player to write a bug report with AI or send it to GitHub"><span class="icon" data-icon="arrow-square-out"></span><span>Open</span></button>
+            <button type="button" class="btn ghost" id="closeTab">Done</button>
+          </div>
+        </form>
+      </aside>
+    </main>
+
+    <input class="text-input" id="textInput" type="text" hidden />
+    <div class="toast" id="toast" role="status" aria-live="polite"><span class="icon" data-icon="check"></span><span id="toastText">Image copied</span></div>
+
+    <script src="lib/icons.js"></script>
+    <script src="lib/tooltip.js"></script>
+    <script type="module" src="snap.js"></script>
+  </body>
+</html>

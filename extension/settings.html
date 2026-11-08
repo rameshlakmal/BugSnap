@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings · BugSnap</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <header class="top">
+      <img class="mark" src="icons/logo-small.svg" alt="" />
+      <strong>BugSnap</strong>
+      <span class="crumb">Settings</span>
+      <span class="spacer"></span>
+      <span class="server-chip" id="serverChip" data-state="checking" data-tip="BugSnap server"><span class="dot"></span><span id="serverChipText">Checking server…</span></span>
+      <button class="btn sm" id="openLibrary"><span class="icon" data-icon="squares-four"></span><span>Recordings</span></button>
+    </header>
+
+    <div class="layout">
+      <nav class="nav" aria-label="Settings sections">
+        <a href="#general" class="on"><span class="icon" data-icon="user"></span>General</a>
+        <a href="#server"><span class="icon" data-icon="globe-simple"></span>Server</a>
+        <a href="#drive"><span class="icon" data-icon="cloud-check"></span>Google Drive<span class="badge" id="navDrive"></span></a>
+        <a href="#ai"><span class="icon" data-icon="sparkle"></span>AI reports<span class="badge" id="navAi"></span></a>
+        <a href="#github"><span class="icon" data-icon="github-logo"></span>GitHub<span class="badge" id="navGh"></span></a>
+        <a href="#shortcuts"><span class="icon" data-icon="keyboard"></span>Shortcuts</a>
+        <a href="#about"><span class="icon" data-icon="info"></span>About</a>
+      </nav>
+
+      <main class="content">
+        <!-- General -->
+        <section class="sec" id="general">
+          <h2>General</h2>
+          <p class="lead">How you appear on recordings and screenshots.</p>
+          <div class="card">
+            <label class="row">
+              <span class="row-text"><strong>Your name</strong><small>Shown as the author on what you record.</small></span>
+              <input class="input" id="reporterName" type="text" autocomplete="name" placeholder="e.g. Ramesh" />
+            </label>
+            <label class="row" for="captureLocation">
+              <span class="row-text"><strong>Save my location</strong><small>Adds your approximate location to the recording details.</small></span>
+              <span class="switch"><input id="captureLocation" type="checkbox" /></span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Server -->
+        <section class="sec" id="server">
+          <h2>Server</h2>
+          <p class="lead">Where recordings are saved and processed. Usually this computer.</p>
+          <div class="card">
+            <label class="row">
+              <span class="row-text"><strong>Server address</strong><small>Default: http://localhost:4800</small></span>
+              <input class="input" id="serverUrl" type="url" placeholder="http://localhost:4800" spellcheck="false" />
+            </label>
+            <label class="row">
+              <span class="row-text"><strong>Upload token</strong><small>Only if your server asks for one.</small></span>
+              <input class="input" id="uploadToken" type="password" autocomplete="off" />
+            </label>
+            <div class="row">
+              <span class="row-text"><strong>Connection</strong><small id="serverDetail">Checking…</small></span>
+              <button class="btn sm" id="testServer"><span class="icon" data-icon="arrow-clockwise"></span><span>Check again</span></button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Google Drive -->
+        <section class="sec needs-server" id="drive">
+          <h2>Google Drive</h2>
+          <p class="lead">Shares recordings and screenshots by link. Files go to a BugSnap folder in your Drive.</p>
+          <div class="card">
+            <div class="head">
+              <span class="glyph"><svg viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0-1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg></span>
+              <span class="row-text"><strong id="driveTitle">Google Drive</strong><small id="driveSub">Checking…</small></span>
+              <span class="pill" id="drivePill"></span>
+            </div>
+            <dl class="kv" id="driveDetails" hidden>
+              <dt>Folder</dt><dd id="driveFolder"></dd>
+              <dt>Share links open</dt><dd id="driveViewer"></dd>
+            </dl>
+            <p class="note" id="driveHelp" hidden></p>
+            <div class="actions" id="driveActions"></div>
+          </div>
+        </section>
+
+        <!-- AI reports -->
+        <section class="sec needs-server" id="ai">
+          <h2>AI reports</h2>
+          <p class="lead">Who writes bug reports from your description and the recording. Pick one.</p>
+          <div class="providers" id="providers" role="radiogroup" aria-label="AI provider"></div>
+          <div class="card provider-panel" id="providerPanel"></div>
+        </section>
+
+        <!-- GitHub -->
+        <section class="sec needs-server" id="github">
+          <h2>GitHub issues</h2>
+          <p class="lead">Create issues from recordings and screenshots in one click.</p>
+          <div class="card">
+            <div class="head">
+              <span class="glyph"><span class="icon big" data-icon="github-logo"></span></span>
+              <span class="row-text"><strong>GitHub</strong><small id="ghSub">Checking…</small></span>
+              <span class="pill" id="ghPill"></span>
+            </div>
+            <ol class="steps" id="ghHow">
+              <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
+              <li>Name it <code>BugSnap</code> and choose the repositories under <b>Repository access</b>.</li>
+              <li>Set <b>Repository permissions → Issues</b> to <b>Read and write</b>, generate it and paste it below.</li>
+            </ol>
+            <label class="row">
+              <span class="row-text"><strong>Token</strong><small id="ghTokenHelp">Stored only on the computer running the server.</small></span>
+              <span class="inline"><input class="input" id="ghToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" /><button class="btn sm primary" id="ghSave">Save</button></span>
+            </label>
+            <label class="row" id="ghRepoRow" hidden>
+              <span class="row-text"><strong>Default repository</strong><small>Pre-selected when you send an issue.</small></span>
+              <select class="input" id="ghDefault"></select>
+            </label>
+            <div class="actions"><button class="btn ghost sm" id="ghRemove" hidden>Disconnect GitHub</button></div>
+          </div>
+        </section>
+
+        <!-- Shortcuts -->
+        <section class="sec" id="shortcuts">
+          <h2>Keyboard shortcuts</h2>
+          <p class="lead">Work on any website. Change them in your browser's shortcut settings.</p>
+          <div class="card">
+            <div id="shortcutList"></div>
+            <div class="actions"><button class="btn sm" id="editShortcuts"><span class="icon" data-icon="keyboard"></span><span>Change shortcuts</span></button></div>
+          </div>
+        </section>
+
+        <!-- About -->
+        <section class="sec" id="about">
+          <h2>About</h2>
+          <div class="card">
+            <div class="row"><span class="row-text"><strong>BugSnap</strong><small id="version"></small></span><img class="about-mark" src="icons/logo.svg" alt="" /></div>
+            <div class="row"><span class="row-text"><strong>Recordings</strong><small>Everything you recorded or captured.</small></span><button class="btn sm" id="openLibrary2">Open</button></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"><span class="icon" id="toastIcon" data-icon="check"></span><span id="toastText"></span></div>
+
+    <script src="lib/icons.js"></script>
+    <script src="lib/tooltip.js"></script>
+    <script type="module" src="settings.js"></script>
+  </body>
+</html>

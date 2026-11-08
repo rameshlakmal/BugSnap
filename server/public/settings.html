@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Settings · BugSnap</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <style>
+      body { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+      .box { width: min(460px, 100%); padding: 28px; display: grid; justify-items: center; gap: 12px; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-md); animation: rise-in .25s var(--ease); }
+      .box .mark { width: 40px; height: 40px; }
+      .box h1 { margin: 6px 0 0; font-size: 19px; }
+      .box p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+      .state { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgb(26 143 80 / 0.12); color: var(--ok); }
+      .state.bad { background: var(--live-soft); color: var(--live); }
+      .state .icon { width: 24px; height: 24px; }
+    </style>
+  </head>
+  <body>
+    <main class="box" id="box">
+      <img class="mark" src="/logo.svg" alt="" />
+      <h1 id="title">BugSnap settings</h1>
+      <p id="text">Settings are in the BugSnap extension: click the BugSnap icon in your browser, then the gear.</p>
+    </main>
+    <script src="/icons.js"></script>
+    <script type="module">
+      // Google sign-in comes back here after connecting Drive.
+      const q = new URLSearchParams(location.search);
+      const I = globalThis.ScreenRecIcons || {};
+      const show = (ok, title, text) => {
+        const s = document.createElement('span');
+        s.className = `state${ok ? '' : ' bad'}`;
+        const ic = document.createElement('span');
+        ic.className = 'icon';
+        ic.innerHTML = I[ok ? 'check' : 'warning-circle'] || '';
+        s.append(ic);
+        document.querySelector('.mark').replaceWith(s);
+        document.getElementById('title').textContent = title;
+        document.getElementById('text').textContent = text;
+      };
+      if (q.get('connected')) show(true, 'Google Drive connected', 'You can close this tab. BugSnap settings update by themselves.');
+      if (q.get('error')) show(false, "Couldn't connect Google Drive", q.get('error'));
+      history.replaceState(null, '', '/settings');
+    </script>
+  </body>
+</html>

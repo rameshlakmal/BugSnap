@@ -1,0 +1,122 @@
+/* Screenshot editor */
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; background: var(--surface); }
+.spacer { flex: 1; }
+
+.top { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--border); flex: none; }
+.top .mark { width: 26px; height: 26px; }
+.top strong { font-size: 15px; }
+.top .crumb { color: var(--muted); font-size: 14px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top .crumb::before { content: "/"; margin-right: 8px; color: var(--border-strong); }
+
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.stage-col { min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+
+.toolbar {
+  align-self: center; margin: 14px 16px 0; display: flex; align-items: center; gap: 4px; padding: 6px;
+  border-radius: 14px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-md);
+  flex-wrap: wrap; justify-content: center; animation: pop-in .2s var(--ease);
+}
+.tools { display: flex; gap: 2px; }
+.tool { all: unset; box-sizing: border-box; width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; color: var(--muted); transition: background .15s var(--ease), color .15s var(--ease); }
+.tool:hover { background: var(--surface-2); color: var(--text); }
+.tool.on { background: var(--text); color: #fff; }
+.tool:focus-visible { box-shadow: var(--ring); }
+.tool:disabled { opacity: .35; cursor: default; background: none; }
+.tool .icon { width: 19px; height: 19px; }
+.divider { width: 1px; height: 22px; background: var(--border); margin: 0 6px; }
+.colors { display: flex; gap: 4px; }
+.color { all: unset; box-sizing: border-box; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; background: var(--c); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); transition: transform .12s var(--ease); }
+.color:hover { transform: scale(1.1); }
+.color.on { box-shadow: 0 0 0 2px var(--text); }
+.color:focus-visible { box-shadow: var(--ring); }
+
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 18px 24px 24px; overflow: auto; }
+.canvas-wrap { position: relative; line-height: 0; border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); background: #fff; animation: rise-in .25s var(--ease); }
+canvas { display: block; max-width: 100%; max-height: calc(100dvh - 160px); cursor: crosshair; touch-action: none; }
+canvas.text-mode { cursor: text; }
+.empty { display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); }
+.empty .icon { width: 34px; height: 34px; color: var(--faint); }
+.empty strong { color: var(--text); font-size: 16px; }
+
+.text-input {
+  position: fixed; z-index: 20; min-width: 160px; padding: 6px 10px; border-radius: 8px; border: 2px solid var(--text);
+  font: 600 16px/1.2 var(--font); background: #fff; color: var(--text); box-shadow: var(--shadow-md); outline: none;
+}
+
+.side { border-left: 1px solid var(--border); min-height: 0; overflow: auto; }
+.form, .done { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 100%; }
+.form .field.grow { flex: 1; display: flex; flex-direction: column; }
+.form textarea { flex: 1; min-height: 120px; resize: none; font: 400 14px/1.5 var(--font); padding: 10px 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); }
+.form textarea:focus, .done input:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
+.segmented { display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; border-radius: var(--r-ctl); background: var(--surface-2); border: 1px solid var(--border); }
+.segmented button { all: unset; cursor: pointer; font: 600 13px/1 var(--font); padding: 8px 12px; border-radius: 7px; color: var(--muted); }
+.segmented button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.segmented button:focus-visible { box-shadow: var(--ring); }
+.kv { margin: 0; display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px 10px; font-size: 13px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.btn.big { height: 44px; font-size: 14.5px; }
+
+.done { animation: view-in .22s var(--ease); --from: 12px; }
+.ok { display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.ok .icon { width: 28px; height: 28px; padding: 5px; border-radius: 50%; background: rgb(26 143 80 / 0.12); color: var(--ok); box-sizing: content-box; }
+.linkrow { display: flex; gap: 8px; }
+.linkrow input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--bg); color: var(--muted); font: 400 13.5px/1 var(--font); }
+.row2 { display: flex; gap: 8px; }
+.hint-text { margin: 0; font-size: 13px; color: var(--faint); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .side { border-left: 0; border-top: 1px solid var(--border); }
+}
+
+/* Thickness */
+.sizes { display: flex; gap: 2px; }
+.size { all: unset; box-sizing: border-box; width: 30px; height: 36px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; }
+.size span { width: var(--d); height: var(--d); border-radius: 50%; background: var(--muted); transition: background .15s var(--ease); }
+.size:hover { background: var(--surface-2); }
+.size:hover span { background: var(--text); }
+.size.on { background: var(--surface-3); }
+.size.on span { background: var(--text); }
+.size:focus-visible { box-shadow: var(--ring); }
+
+/* Canvas cursors while hovering marks */
+canvas.over-shape { cursor: move; }
+canvas.over-handle { cursor: grab; }
+canvas.dragging { cursor: grabbing; }
+
+/* Copy image: icon swaps to a check with a little pop, the button flashes green */
+.copy-btn .swap { position: relative; width: 17px; height: 17px; display: inline-grid; }
+.copy-btn .swap .icon { position: absolute; inset: 0; width: 17px; height: 17px; transition: transform .28s var(--ease), opacity .2s ease; }
+.copy-btn .ok-icon { opacity: 0; transform: scale(.4) rotate(-30deg); color: var(--ok); }
+.copy-btn.copied { background: rgb(26 143 80 / 0.1); color: var(--ok); animation: pulse-ok .5s var(--ease); }
+.copy-btn.copied .swap .icon:first-child { opacity: 0; transform: scale(.4) rotate(30deg); }
+.copy-btn.copied .ok-icon { opacity: 1; transform: none; }
+.copy-btn.failed { color: var(--live); animation: shake .35s ease; }
+@keyframes pulse-ok { 0% { box-shadow: 0 0 0 0 rgb(26 143 80 / 0.35); } 100% { box-shadow: 0 0 0 10px rgb(26 143 80 / 0); } }
+@keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 30; display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 12px; background: #18181b; color: #fff; font: 600 13.5px/1 var(--font);
+  box-shadow: 0 12px 30px rgb(0 0 0 / .25); pointer-events: none;
+  opacity: 0; transform: translate(-50%, 12px) scale(.97); transition: opacity .2s ease, transform .25s var(--ease);
+}
+.toast .icon { width: 17px; height: 17px; color: #4ade80; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.bad .icon { color: #ff8a8e; }
+
+/* Autosave state */
+.save-state { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-size: 13px; font-weight: 600; color: var(--muted); padding: 5px 10px 5px 8px; border-radius: var(--r-pill); background: var(--surface-2); transition: background .2s var(--ease), color .2s var(--ease); }
+.save-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.save-state[data-state="saving"] .dot { background: var(--warn); animation: blink 1s ease-in-out infinite; }
+.save-state[data-state="saved"] { color: var(--ok); background: rgb(26 143 80 / 0.1); }
+.save-state[data-state="saved"] .dot { background: var(--ok); }
+.save-state[data-state="error"] { color: var(--live); background: var(--live-soft); }
+.save-state[data-state="error"] .dot { background: var(--live); }
+@keyframes blink { 50% { opacity: .35; } }
+.share { display: grid; gap: 6px; }
+.share label { font-size: 13px; font-weight: 600; }
+.alert .btn { margin-left: auto; }

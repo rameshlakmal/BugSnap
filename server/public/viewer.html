@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Recording · BugSnap</title>
+    <link rel="preload" href="/fonts/figtree.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#18181b" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/viewer.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="btn ghost icon-only home" id="home" data-tip="All recordings" data-local-only><span class="icon" data-icon="house"></span></a>
+      <span class="brand" id="brand"><img class="mark" src="/logo.svg" alt="" /><span>BugSnap</span></span>
+      <nav class="crumbs" data-local-only><a href="/">All recordings</a><span class="sep">/</span></nav>
+      <span class="crumb-title" id="crumbTitle"></span>
+      <span class="spacer"></span>
+      <a class="btn ghost icon-only" id="download" data-tip="Download video"><span class="icon" data-icon="download-simple"></span></a>
+      <button class="btn" id="annotate" data-local-only hidden data-tip="Edit the marks on this screenshot"><span class="icon" data-icon="pencil-simple"></span><span>Annotate</span></button>
+      <button class="btn" id="ghOpen" data-local-only data-tip="Create a GitHub issue from this report"><span class="icon" data-icon="github-logo"></span><span>Send to GitHub</span></button>
+      <div class="split" id="shareSplit">
+        <button class="btn primary" id="copyLink"><span class="icon" data-icon="link-simple"></span><span>Copy link</span></button>
+        <div class="menu-wrap">
+          <button class="btn primary" id="shareMore" data-tip="More sharing options" aria-haspopup="menu"><span class="icon" data-icon="caret-down"></span></button>
+          <div class="menu" id="shareMenu" role="menu" hidden>
+            <button role="menuitem" id="copyAtTime"><span class="icon" data-icon="clock"></span><span>Copy link at 0:00</span></button>
+            <button role="menuitem" id="copyReportMenu"><span class="icon" data-icon="file-text"></span><span>Copy bug report</span></button>
+            <a role="menuitem" id="openDrive" target="_blank" rel="noopener" hidden><span class="icon" data-icon="cloud-check"></span><span>Open in Google Drive</span></a>
+            <hr data-local-only />
+            <button role="menuitem" id="editDetails" data-local-only><span class="icon" data-icon="pencil-simple"></span><span>Edit title and description</span></button>
+          </div>
+        </div>
+      </div>
+      <button class="btn ghost icon-only" id="togglePanel" data-tip="Hide DevTools"><span class="icon" data-icon="sidebar-simple"></span></button>
+    </header>
+
+    <div id="banner" class="banner" role="status" hidden><span class="icon" id="bannerIcon" data-icon="info"></span><span id="bannerText"></span><button class="btn sm" id="bannerAction" hidden></button></div>
+
+    <main class="layout" id="layout">
+      <section class="main-col">
+        <div class="stage" id="stage">
+          <div class="screen" id="screen">
+            <video id="video" playsinline preload="metadata"></video>
+            <a class="shot" id="shotLink" target="_blank" rel="noopener" data-tip="Open full size" hidden><img id="shot" alt="Screenshot" /></a>
+            <button class="bigplay" id="bigPlay" data-tip="Play" hidden><span class="icon" data-icon="play-fill"></span></button>
+            <div class="state" id="stageState" hidden><span class="icon spin" data-icon="spinner-gap"></span><strong id="stageTitle"></strong><span id="stageText"></span></div>
+          </div>
+          <div class="controls" id="controls">
+            <div class="track" id="track" role="slider" aria-label="Seek" tabindex="0">
+              <div class="rail"><div class="buffered" id="buffered"></div><div class="played" id="played"></div></div>
+              <div class="markers" id="markers"></div>
+              <div class="knob" id="knob"></div>
+              <div class="hovertime" id="hoverTime" hidden></div>
+            </div>
+            <div class="row">
+              <button class="cbtn" id="playBtn" data-tip="Play" data-kbd="Space"><span class="icon" data-icon="play-fill"></span></button>
+              <button class="cbtn" data-skip="-5" data-tip="Back 5 seconds" data-kbd="J"><span class="icon" data-icon="arrow-counter-clockwise"></span></button>
+              <button class="cbtn" data-skip="5" data-tip="Forward 5 seconds" data-kbd="L"><span class="icon" data-icon="arrow-clockwise"></span></button>
+              <button class="cbtn" id="muteBtn" data-tip="Mute" data-kbd="M"><span class="icon" data-icon="speaker-high"></span></button>
+              <span class="time" id="clock">0:00 / 0:00</span>
+              <span class="spacer"></span>
+              <button class="cbtn text" id="speedBtn" data-tip="Playback speed">1x</button>
+              <button class="cbtn" id="fullBtn" data-tip="Full screen" data-kbd="F"><span class="icon" data-icon="corners-out"></span></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="details">
+          <div class="title-row">
+            <h1 id="title"><span class="sk sk-title"></span></h1>
+            <button class="btn ghost icon-only sm" id="editBtn" data-tip="Edit title and description" data-local-only><span class="icon" data-icon="pencil-simple"></span></button>
+          </div>
+          <p class="desc" id="desc"></p>
+          <div class="activity" id="activity"></div>
+        </div>
+      </section>
+
+      <aside class="side" id="side">
+        <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Resize DevTools" tabindex="0" data-tip="Drag to resize · double-click to reset"></div>
+        <div class="side-head"><strong>DevTools</strong></div>
+        <nav class="tabs" role="tablist">
+          <button role="tab" data-tab="info" aria-selected="false">Info</button>
+          <button role="tab" data-tab="steps" class="on" aria-selected="true">Steps<span class="count" id="c-steps"></span></button>
+          <button role="tab" data-tab="console" aria-selected="false">Console<span class="count" id="c-console"></span><span class="errs" id="e-console" hidden></span></button>
+          <button role="tab" data-tab="network" aria-selected="false">Network<span class="count" id="c-network"></span><span class="errs" id="e-network" hidden></span></button>
+          <button role="tab" data-tab="report" aria-selected="false">Report</button>
+        </nav>
+        <div class="toolbar" id="toolbar">
+          <label class="search"><span class="icon" data-icon="magnifying-glass"></span><input id="search" type="search" placeholder="Search" aria-label="Search" /></label>
+          <div class="segmented sm" id="levels" role="group" aria-label="Console level" hidden>
+            <button data-level="all" class="on">All</button>
+            <button data-level="warn">Warnings</button>
+            <button data-level="error">Errors</button>
+          </div>
+          <label class="switch follow" for="follow" data-tip="Scroll the list with the video"><input type="checkbox" id="follow" checked />Follow</label>
+        </div>
+        <div class="pane" id="pane-info" hidden><div id="info" class="info"></div></div>
+        <div class="pane" id="pane-steps"><ol class="events" id="list-steps"></ol></div>
+        <div class="pane" id="pane-console" hidden><ol class="events" id="list-console"></ol></div>
+        <div class="pane" id="pane-network" hidden><ol class="events" id="list-network"></ol></div>
+        <div class="pane report" id="pane-report" hidden>
+          <div class="ask" data-local-only>
+            <label for="what">What happened?</label>
+            <textarea id="what" rows="3" placeholder="e.g. I clicked Start trial and nothing happened. It should open the payment page."></textarea>
+            <div class="ask-row">
+              <div class="segmented sm" id="kind" role="group" aria-label="Report type">
+                <button type="button" data-kind="bug" class="on" data-tip="Something is broken">Bug</button>
+                <button type="button" data-kind="suggestion" data-tip="Something could be better">Suggestion</button>
+              </div>
+              <span class="spacer"></span>
+              <button class="btn primary sm" id="writeAi" data-tip="Claude writes the issue from your words and the recording"><span class="icon" data-icon="sparkle"></span><span>Write with Claude</span></button>
+            </div>
+            <p class="ai-hint" id="aiHint" hidden></p>
+          </div>
+          <div class="report-head">
+            <strong id="reportLabel">Draft</strong>
+            <span class="spacer"></span>
+            <button class="btn ghost sm" id="saveReport" data-local-only hidden><span class="icon" data-icon="floppy-disk"></span><span>Save</span></button>
+            <button class="btn sm" id="copyReport"><span class="icon" data-icon="copy"></span><span>Copy</span></button>
+          </div>
+          <textarea id="report" spellcheck="true" aria-label="Bug report"></textarea>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Review: shown after recording (?review=1) and from "Edit" -->
+    <div class="modal-back" id="review" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reviewHead">
+        <div class="modal-video"><video id="reviewVideo" playsinline controls preload="metadata"></video><img id="reviewImage" alt="" hidden /></div>
+        <form class="modal-side" id="reviewForm">
+          <div class="modal-top">
+            <h2 id="reviewHead">Review recording</h2>
+            <button type="button" class="btn ghost icon-only sm" id="reviewClose" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+          </div>
+          <div class="field"><label for="rTitle">Title</label><input id="rTitle" type="text" maxlength="200" autocomplete="off" /></div>
+          <div class="field grow"><label for="rDesc">Description</label><textarea id="rDesc" maxlength="5000" placeholder="What went wrong? What did you expect?"></textarea></div>
+          <div class="field">
+            <label for="rLink">Share link</label>
+            <div class="linkrow"><input id="rLink" type="text" readonly /><button type="button" class="btn" id="rCopy" data-tip="Copy link"><span class="icon" data-icon="link-simple"></span><span>Copy</span></button></div>
+            <span class="help" id="rStatus"></span>
+          </div>
+          <div class="modal-foot">
+            <button type="button" class="btn ghost danger" id="rDelete"><span class="icon" data-icon="trash"></span><span>Delete</span></button>
+            <span class="spacer"></span>
+            <button type="submit" class="btn primary" id="rSave">Done</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- GitHub issue (local server only) -->
+    <div class="modal-back" id="gh" hidden data-local-only>
+      <div class="modal gh-modal" role="dialog" aria-modal="true" aria-labelledby="ghHead">
+        <form class="modal-side" id="ghForm">
+          <div class="modal-top">
+            <h2 id="ghHead"><span class="icon" data-icon="github-logo"></span>Create GitHub issue</h2>
+            <button type="button" class="btn ghost icon-only sm" id="ghClose" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+          </div>
+          <div class="gh-setup" id="ghSetup" hidden>
+            <p>Connect GitHub once to create issues from BugSnap.</p>
+            <a class="btn primary" href="/settings#github">Open Settings</a>
+          </div>
+          <div class="gh-fields" id="ghFields">
+            <p class="gh-tip" id="ghTip" hidden>Tip: <button type="button" class="linkish" id="ghToReport">write the report with Claude</button> first for a complete issue.</p>
+            <div class="field"><label for="ghRepo">Repository</label><select id="ghRepo"></select></div>
+            <div class="field"><label for="ghTitle">Title</label><input id="ghTitle" type="text" maxlength="256" autocomplete="off" /></div>
+            <div class="field grow"><label for="ghBody">Description</label><textarea id="ghBody" spellcheck="true"></textarea></div>
+            <div class="field"><label>Labels</label><div class="chips" id="ghLabels"><span class="muted-sm">Choose a repository</span></div></div>
+            <div class="field"><label>Assignees</label><div class="chips" id="ghAssignees"><span class="muted-sm">Choose a repository</span></div></div>
+            <div class="field" id="ghMilestoneField" hidden><label for="ghMilestone">Milestone</label><select id="ghMilestone"></select></div>
+          </div>
+          <div class="gh-done" id="ghDone" hidden>
+            <span class="icon" data-icon="check"></span>
+            <strong id="ghDoneText">Issue created</strong>
+            <a class="btn primary" id="ghDoneLink" target="_blank" rel="noopener"><span class="icon" data-icon="arrow-square-out"></span><span>Open on GitHub</span></a>
+          </div>
+          <div class="alert" id="ghAlert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="ghAlertText"></span></div>
+          <div class="modal-foot" id="ghFoot">
+            <span class="spacer"></span>
+            <button type="button" class="btn ghost" id="ghCancel">Cancel</button>
+            <button type="submit" class="btn primary" id="ghCreate"><span class="icon" data-icon="github-logo"></span><span>Create issue</span></button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <section class="notfound" id="notfound" hidden>
+      <span class="icon" data-icon="film-slate"></span>
+      <h2>Recording not found</h2>
+      <p>Check the link, or it may have been deleted.</p>
+      <a class="btn" href="/" data-local-only>All recordings</a>
+    </section>
+
+    <script src="/icons.js"></script>
+    <script src="/tooltip.js"></script>
+    <script type="module" src="/viewer.js"></script>
+  </body>
+</html>

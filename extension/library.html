@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="icons/logo-small.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recordings · BugSnap</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="library.css" />
+  </head>
+  <body>
+    <aside class="lib-side">
+      <div class="brand"><img class="mark" src="icons/logo-small.svg" alt="" />BugSnap</div>
+      <button class="nav on" data-filter="all"><span class="icon" data-icon="squares-four"></span>All recordings<span class="n" id="n-all"></span></button>
+      <button class="nav" data-filter="tab"><span class="icon" data-icon="browser"></span>Tab<span class="n" id="n-tab"></span></button>
+      <button class="nav" data-filter="screen"><span class="icon" data-icon="monitor"></span>Screen<span class="n" id="n-screen"></span></button>
+      <button class="nav" data-filter="shots"><span class="icon" data-icon="camera"></span>Screenshots<span class="n" id="n-shots"></span></button>
+      <button class="nav" data-filter="errors"><span class="icon" data-icon="bug"></span>With errors<span class="n" id="n-errors"></span></button>
+      <span class="grow"></span>
+      <a class="nav" id="settingsLink" href="/settings"><span class="icon" data-icon="gear-six"></span>Settings</a>
+    </aside>
+    <main class="lib-main">
+      <header class="lib-head">
+        <h1 id="heading">All recordings</h1>
+        <span class="spacer"></span>
+        <label class="lib-search"><span class="icon" data-icon="magnifying-glass"></span><input id="q" type="search" placeholder="Search recordings" aria-label="Search recordings" /><span class="kbd">Ctrl K</span></label>
+        <button class="btn ghost icon-only" id="refresh" data-tip="Refresh" data-icon="arrow-clockwise"></button>
+      </header>
+      <div class="lib-note" id="note" role="status" hidden><span class="icon" data-icon="warning-circle"></span><span id="noteText"></span><button class="btn sm" id="retry">Retry</button></div>
+      <div id="content"></div>
+    </main>
+    <script src="lib/icons.js"></script>
+    <script src="lib/tooltip.js"></script>
+    <script type="module" src="library.js"></script>
+  </body>
+</html>

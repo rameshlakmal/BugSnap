@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="icons/logo-small.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Record screen</title>
+    <link rel="stylesheet" href="ui.css" />
+    <style>
+      body { min-height: 100vh; display: grid; align-content: center; background: var(--surface); }
+      main { padding: 24px; display: grid; gap: 18px; }
+      h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+
+      .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+      .opt { position: relative; cursor: pointer; }
+      .opt input { position: absolute; opacity: 0; pointer-events: none; }
+      .opt .box {
+        display: grid; justify-items: center; text-align: center; gap: 2px; padding: 18px 10px 14px; height: 100%;
+        border-radius: var(--r-panel); border: 1.5px solid var(--border); background: var(--bg);
+        transition: border-color .18s var(--ease), background .18s var(--ease);
+      }
+      .opt:hover .box { border-color: var(--border-strong); }
+      .opt input:checked + .box { border-color: var(--accent); background: var(--accent-soft); }
+      .opt input:focus-visible + .box { box-shadow: var(--ring); }
+      .opt .glyph { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--border); color: var(--muted); margin-bottom: 8px; }
+      .opt input:checked + .box .glyph { color: var(--accent); border-color: transparent; }
+      .opt .glyph .icon { width: 24px; height: 24px; }
+      .opt strong { font-size: 14.5px; font-weight: 700; }
+      .opt small { color: var(--muted); font-size: 13px; }
+
+      .footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .footer .switch { gap: 10px; justify-content: flex-start; color: var(--muted); }
+      .footer .actions { display: flex; gap: 8px; }
+
+      .center { display: grid; justify-items: center; gap: 12px; text-align: center; padding: 8px 0; }
+      .center .big { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+      .center .big .icon { width: 26px; height: 26px; }
+      .center p { margin: 0; color: var(--muted); }
+      .status { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; font-weight: 600; }
+      .clock { font: 700 48px/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .row { display: flex; gap: 8px; }
+      .note { font-size: 13px; color: var(--faint); }
+      .spin { animation: spin 0.9s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- Choose -->
+      <section id="pick" style="display: grid; gap: 18px">
+        <h1>What do you want to record?</h1>
+        <div class="options" role="radiogroup" aria-label="Source">
+          <label class="opt">
+            <input type="radio" name="surface" value="monitor" checked />
+            <span class="box"><span class="glyph"><span class="icon" data-icon="monitor"></span></span><strong>Screen</strong><small>Whole display</small></span>
+          </label>
+          <label class="opt">
+            <input type="radio" name="surface" value="window" />
+            <span class="box"><span class="glyph"><span class="icon" data-icon="app-window"></span></span><strong>Window</strong><small>One app</small></span>
+          </label>
+          <label class="opt">
+            <input type="radio" name="surface" value="browser" />
+            <span class="box"><span class="glyph"><span class="icon" data-icon="browser"></span></span><strong>Tab</strong><small>Any open tab</small></span>
+          </label>
+        </div>
+        <div class="footer">
+          <label class="switch" for="audio"><input id="audio" type="checkbox" checked />Computer sound</label>
+          <div class="actions">
+            <button class="btn ghost" id="cancel">Cancel</button>
+            <button class="btn primary" id="choose"><span class="icon" data-icon="record-fill"></span><span>Start</span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chrome's picker is open -->
+      <section id="waiting" class="center" hidden>
+        <span class="big"><span class="icon" data-icon="cursor-click"></span></span>
+        <h1>Choose in Chrome's window</h1>
+      </section>
+
+      <!-- Live -->
+      <section id="live" class="center" hidden aria-live="polite">
+        <span class="status"><span id="dot" class="live-dot pulse"></span><span id="statusText">Recording</span></span>
+        <span class="clock" id="clock">0:00</span>
+        <div class="row">
+          <button class="btn" id="pause"><span class="icon" data-icon="pause-fill"></span><span>Pause</span></button>
+          <button class="btn live" id="stop"><span class="icon" data-icon="stop-fill"></span><span>Stop</span></button>
+          <button class="btn ghost" id="discard"><span class="icon" data-icon="trash"></span><span>Discard</span></button>
+        </div>
+        <span class="note">Keep this window open. You can minimise it.</span>
+      </section>
+
+      <!-- Saving / done -->
+      <section id="saving" class="center" hidden>
+        <span class="big"><span class="icon spin" data-icon="spinner-gap"></span></span>
+        <h1>Saving…</h1>
+      </section>
+      <section id="done" class="center" hidden>
+        <span class="big"><span class="icon" data-icon="check"></span></span>
+        <h1>Saved</h1>
+        <a class="btn primary" id="link" target="_blank" rel="noopener"><span class="icon" data-icon="play-fill"></span><span>Open</span></a>
+      </section>
+
+      <div id="alert" class="alert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="alertText"></span></div>
+    </main>
+
+    <script src="lib/icons.js"></script>
+    <script type="module" src="recorder.js"></script>
+  </body>
+</html>

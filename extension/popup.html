@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="icons/logo-small.svg" type="image/svg+xml" />
+    <title>BugSnap</title>
+    <link rel="stylesheet" href="ui.css" />
+    <style>
+      html, body { margin: 0; }
+      body { width: 340px; background: var(--surface); }
+      /* Inside the rounded in-page panel the page sizes the frame to the content: never scroll. */
+      html.in-panel, html.in-panel body { width: 100%; overflow: hidden; }
+
+      header { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 8px 0 14px; }
+      .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; }
+      .brand .mark { width: 24px; height: 24px; }
+      .tools { display: flex; gap: 2px; }
+      main { padding: 2px 12px 12px; display: grid; gap: 8px; }
+      .back { display: flex; align-items: center; gap: 4px; margin: 0 0 2px -6px; }
+      .back h2 { margin: 0; font-size: 15px; font-weight: 700; }
+
+      .row {
+        all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
+        display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 14px;
+        border-radius: 12px; border: 1px solid var(--border); background: var(--surface);
+        font: 600 14px/1 var(--font); color: var(--text);
+        transition: border-color .15s var(--ease), background .15s var(--ease), transform .1s var(--ease);
+      }
+      .row:hover { border-color: var(--border-strong); background: var(--surface-2); }
+      .row:active { transform: scale(0.99); }
+      .row:focus-visible { box-shadow: var(--ring); }
+      .row:disabled { opacity: .5; cursor: default; }
+      .row .icon { width: 20px; height: 20px; }
+      .row .grow { flex: 1; }
+      .row .hint { font-size: 12.5px; font-weight: 500; color: var(--faint); }
+      .row .rec { width: 10px; height: 10px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+      .session { padding: 16px 14px 10px; display: grid; gap: 14px; justify-items: center; text-align: center; border-radius: 12px; border: 1px solid var(--border); }
+      .session .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+      .session .clock { font: 700 36px/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+      .session .row2 { display: flex; gap: 8px; width: 100%; }
+      .session .row2 .btn { flex: 1; }
+
+      .label { font-size: 12.5px; font-weight: 600; color: var(--faint); margin: 6px 2px -2px; }
+      .last { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 7px; border-radius: 12px; border: 1px solid var(--border); cursor: pointer; transition: background .15s var(--ease); }
+      .last:hover { background: var(--surface-2); }
+      .last:focus-visible { outline: none; box-shadow: var(--ring); }
+      .last .thumb { width: 64px; height: 40px; border-radius: 7px; overflow: hidden; background: var(--surface-3); display: grid; place-items: center; color: var(--faint); }
+      .last .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .last .thumb .icon { width: 18px; height: 18px; }
+      .last .meta { display: grid; gap: 2px; min-width: 0; }
+      .last strong { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .last small { font-size: 12.5px; color: var(--muted); }
+
+      .saved { font-size: 13px; color: var(--ok); display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+      .actions { display: flex; gap: 10px; align-items: center; }
+      .sp { margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><img class="mark" src="icons/logo-small.svg" alt="" />BugSnap</div>
+      <div class="tools">
+        <button class="btn ghost icon-only sm" id="openLibrary" data-tip="All recordings" data-icon="house"></button>
+        <button class="btn ghost icon-only sm" id="openSettings" data-tip="Settings" data-icon="gear-six"></button>
+      </div>
+    </header>
+
+    <main id="viewMain">
+      <div id="alert" class="alert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="alertText"></span></div>
+
+      <section id="idle" style="display: grid; gap: 8px" aria-label="Record">
+        <button class="row" id="recTab" data-tip="Video plus clicks, console and network logs">
+          <span class="icon" data-icon="browser"></span><span class="grow">Record this tab</span><span class="rec"></span>
+        </button>
+        <button class="row" id="recDesktop" data-tip="Your whole screen or one window">
+          <span class="icon" data-icon="monitor"></span><span class="grow">Record screen</span><span class="hint">or window</span>
+        </button>
+        <button class="row" id="snap" data-tip="Select an area, mark it up, share it" data-kbd="Alt+Shift+S">
+          <span class="icon" data-icon="camera"></span><span class="grow">Capture screenshot</span><span class="hint">Alt+Shift+S</span>
+        </button>
+      </section>
+
+      <section id="session" class="session" hidden aria-live="polite">
+        <span class="status"><span id="statusDot" class="live-dot pulse"></span><span id="statusText">Recording</span></span>
+        <span class="clock" id="clock">0:00</span>
+        <div class="row2">
+          <button class="btn" id="pause" data-tip="Pause" data-kbd="Alt+Shift+P"><span class="icon" data-icon="pause-fill"></span><span>Pause</span></button>
+          <button class="btn live" id="stop" data-tip="Stop and save" data-kbd="Alt+Shift+X"><span class="icon" data-icon="stop-fill"></span><span>Stop</span></button>
+        </div>
+        <button class="btn ghost sm" id="discard"><span class="icon" data-icon="trash"></span><span>Discard</span></button>
+      </section>
+
+      <span class="label" id="lastLabel" hidden>Last recording</span>
+      <div id="last" class="last" role="link" tabindex="0" data-tip="Open" hidden>
+        <span class="thumb" id="lastThumb"></span>
+        <span class="meta"><strong id="lastTitle"></strong><small id="lastWhen"></small></span>
+        <button class="btn ghost icon-only sm" id="copy" data-tip="Copy link" data-icon="link-simple"></button>
+      </div>
+    </main>
+
+
+    <script src="lib/icons.js"></script>
+    <script src="lib/tooltip.js"></script>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
