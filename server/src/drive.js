@@ -33,7 +33,8 @@ function fileName(title, id, ext) {
 }
 
 export class Drive {
-  constructor({ clientId, clientSecret, dataDir, folderName, port, viewerUrl }) {
+  constructor({ clientId, clientSecret, dataDir, folderName, port, viewerUrl, redirectUri }) {
+    this.redirectOverride = redirectUri || '';
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this.stateFile = path.join(dataDir, 'google-drive.json');
@@ -55,7 +56,7 @@ export class Drive {
 
   /** Loopback redirect: allowed for Desktop OAuth clients on any port without registering it. */
   get redirectUri() {
-    return `http://127.0.0.1:${this.port}/auth/google/callback`;
+    return this.redirectOverride || `http://127.0.0.1:${this.port}/auth/google/callback`;
   }
 
   status() {
@@ -378,8 +379,9 @@ export class Drive {
     // A retry may find the media already uploaded under its reserved id. Screenshots use the
     // same slot for their PNG.
     let videoId = reserved?.videoId;
-    if (isShot && videoId && (await this.exists(videoId))) {
-      await this.replaceFile(videoId, videoPath, 'image/png');
+    // A trimmed recording replaces its video in the same slot, so the link stays the same.
+    if ((isShot || reserved?.needsVideo) && videoId && (await this.exists(videoId))) {
+      await this.replaceFile(videoId, videoPath, isShot ? 'image/png' : 'video/webm');
     } else if (!videoId || !(await this.exists(videoId))) {
       videoId = await this.upload({
         id: videoId,

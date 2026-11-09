@@ -10,7 +10,8 @@
     "dev": "node --env-file-if-exists=.env --watch src/index.js",
     "smoke": "node test/smoke.js",
     "build:viewer": "node --env-file-if-exists=.env scripts/build-viewer.js",
-    "test:drive": "node test/drive-mock.js"
+    "test:drive": "node test/drive-mock.js",
+    "user": "node --env-file-if-exists=.env scripts/user.js"
   },
   "engines": {
     "node": ">=22.9"

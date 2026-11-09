@@ -90,7 +90,16 @@ export class LocalStorage {
     record.updatedAt = new Date().toISOString();
     const tmp = this.file(record.id, 'record.json.tmp');
     await fs.writeFile(tmp, JSON.stringify(record, null, 2));
-    await fs.rename(tmp, this.file(record.id, 'record.json'));
+    // Windows refuses to replace a file another request is reading at that instant: retry briefly.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fs.rename(tmp, this.file(record.id, 'record.json'));
+        return;
+      } catch (err) {
+        if (attempt >= 8 || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) throw err;
+        await new Promise((r) => setTimeout(r, 25 * (attempt + 1)));
+      }
+    }
   }
 
   async update(id, patch) {
@@ -224,9 +233,23 @@ export class LocalStorage {
   }
 }
 
-function countEvents(events) {
+/**
+ * A request can be reported up to three times (page hook, Chrome's request API, Resource Timing)
+ * and WebSockets several times: count each request once. Timing rows only add details; Chrome's
+ * rows for fetch/XHR and WebSockets repeat what the page hook saw.
+ */
+export function isPrimaryNetwork(e) {
+  if (e.via === 'timing') return false;
+  if (e.via === 'web' && ['xmlhttprequest', 'websocket'].includes(e.resourceType)) return false;
+  return true;
+}
+
+export function countEvents(events) {
   const counts = { action: 0, navigation: 0, console: 0, consoleErrors: 0, network: 0, networkErrors: 0 };
+  const seen = new Set();
   for (const e of events) {
+    if (e.type === 'network' && (!isPrimaryNetwork(e) || (e.reqId && seen.has(e.reqId)))) continue;
+    if (e.type === 'network' && e.reqId) seen.add(e.reqId);
     if (e.type in counts) counts[e.type] += 1;
     if (e.type === 'console' && e.level === 'error') counts.consoleErrors += 1;
     if (e.type === 'network' && (e.status === 0 || e.status >= 400)) counts.networkErrors += 1;

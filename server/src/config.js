@@ -16,6 +16,9 @@ export const config = {
   dataDir: process.env.DATA_DIR || path.resolve(here, '..', 'data'),
   // Optional shared secret the extension must send to upload. Empty = uploads open (local dev only).
   uploadToken: process.env.UPLOAD_TOKEN || '',
+  // Hosted server: everything needs a sign-in (users are added with npm run user). Sign-in is
+  // also switched on automatically once any user exists.
+  requireLogin: process.env.REQUIRE_LOGIN === '1',
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
   // The list of all recordings has no sign-in. Set to 1 to hide it
   // on a shared server so recordings are reachable only through their share links.
@@ -26,6 +29,8 @@ export const config = {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     folderName: process.env.DRIVE_FOLDER_NAME || 'BugSnap',
+    // Hosted server with a Web OAuth client: e.g. https://bugsnap.example.com/auth/google/callback
+    redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
   },
   // Public player on GitHub Pages, e.g. https://you.github.io/bugsnap-viewer
   viewerUrl: process.env.VIEWER_URL || '',

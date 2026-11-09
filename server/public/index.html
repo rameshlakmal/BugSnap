@@ -22,6 +22,8 @@
       <button class="nav" data-filter="screen"><span class="icon" data-icon="monitor"></span>Screen<span class="n" id="n-screen"></span></button>
       <button class="nav" data-filter="shots"><span class="icon" data-icon="camera"></span>Screenshots<span class="n" id="n-shots"></span></button>
       <button class="nav" data-filter="errors"><span class="icon" data-icon="bug"></span>With errors<span class="n" id="n-errors"></span></button>
+      <div class="side-label folders-head"><span>Folders</span><button class="folder-add" id="addFolder" type="button" data-tip="New folder" aria-label="New folder" data-icon="plus"></button></div>
+      <div class="folders" id="folders"></div>
       <span class="grow"></span>
       <a class="nav" id="settingsLink" href="/settings"><span class="icon" data-icon="gear-six"></span>Settings</a>
     </aside>
@@ -34,6 +36,7 @@
       </header>
       <div class="lib-note" id="note" role="status" hidden><span class="icon" data-icon="warning-circle"></span><span id="noteText"></span><button class="btn sm" id="retry">Retry</button></div>
       <div id="content"></div>
+      <div class="sel-bar" id="selBar" hidden><span id="selText">1 selected</span><button class="btn sm" id="selMove" type="button"><span class="icon" data-icon="folder-open"></span><span>Move to folder</span></button><button class="btn ghost sm" id="selClear" type="button">Clear</button></div>
     </main>
     <script src="/icons.js"></script>
     <script src="/tooltip.js"></script>

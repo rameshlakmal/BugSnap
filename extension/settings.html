@@ -56,8 +56,8 @@
               <input class="input" id="serverUrl" type="url" placeholder="http://localhost:4800" spellcheck="false" />
             </label>
             <label class="row">
-              <span class="row-text"><strong>Upload token</strong><small>Only if your server asks for one.</small></span>
-              <input class="input" id="uploadToken" type="password" autocomplete="off" />
+              <span class="row-text"><strong>Access key</strong><small>For a hosted server: your personal key (starts with bsk_).</small></span>
+              <input class="input" id="uploadToken" type="password" autocomplete="off" spellcheck="false" placeholder="bsk_…" />
             </label>
             <div class="row">
               <span class="row-text"><strong>Connection</strong><small id="serverDetail">Checking…</small></span>
@@ -106,11 +106,13 @@
             <ol class="steps" id="ghHow">
               <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
               <li>Name it <code>BugSnap</code> and choose the repositories under <b>Repository access</b>.</li>
-              <li>Set <b>Repository permissions → Issues</b> to <b>Read and write</b>, generate it and paste it below.</li>
+              <li>Set <b>Repository permissions → Issues</b> to <b>Read and write</b>.</li>
+              <li>For project boards of an organisation, pick it as <b>Resource owner</b> and set <b>Organization permissions → Projects</b> to <b>Read and write</b>. Boards on a personal account may need a classic token with the <code>repo</code> and <code>project</code> scopes.</li>
+              <li>Generate it and paste it below.</li>
             </ol>
             <label class="row">
               <span class="row-text"><strong>Token</strong><small id="ghTokenHelp">Stored only on the computer running the server.</small></span>
-              <span class="inline"><input class="input" id="ghToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" /><button class="btn sm primary" id="ghSave">Save</button></span>
+              <span class="inline"><input class="input" id="ghToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_… or ghp_…" /><button class="btn sm primary" id="ghSave">Save</button></span>
             </label>
             <label class="row" id="ghRepoRow" hidden>
               <span class="row-text"><strong>Default repository</strong><small>Pre-selected when you send an issue.</small></span>

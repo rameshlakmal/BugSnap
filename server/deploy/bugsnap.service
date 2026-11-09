@@ -1,0 +1,24 @@
+[Unit]
+Description=BugSnap server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=bugsnap
+Group=bugsnap
+WorkingDirectory=/opt/bugsnap/app/server
+ExecStart=/usr/bin/node --env-file=.env src/index.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+# Hardening: the service can only write its own data folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/bugsnap/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

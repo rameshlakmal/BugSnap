@@ -85,7 +85,7 @@ Press **Alt+Shift+S**, drag over the area you want, and mark it up: arrows, boxe
 
 ### 🐙 GitHub issues in one click
 
-**Send to GitHub** opens a form already filled from the report. Pick the repository, labels, assignees and milestone, then **Create issue**. The issue number shows on the recording so you can find it again.
+**Send to GitHub** opens a form already filled with the steps, environment and links. Describe the bug and click **Write with Claude** to fill in the full report. Pick the repository, labels, assignees, milestone and project boards (with their Status, Priority and other dropdowns), then **Create issue**. The issue number shows on the recording so you can find it again.
 
 ### 🗂️ All your recordings in one place
 
@@ -146,7 +146,7 @@ Click the BugSnap icon on any website, then **Record this tab**. Stop with the c
 
 - **Shareable links:** connect Google Drive by following [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md). Without it, recordings stay on your computer.
 - **AI reports:** Settings → AI reports. Pick a provider and add a key, or use Claude Code with no key.
-- **GitHub:** Settings → GitHub. Paste a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Issues: Read and write** on your bug repositories.
+- **GitHub:** Settings → GitHub. Paste a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Issues: Read and write** on your bug repositories (add **Projects: Read and write** to use project boards).
 
 > After pulling changes, restart the server and click the reload icon on the BugSnap card in `chrome://extensions`.
 

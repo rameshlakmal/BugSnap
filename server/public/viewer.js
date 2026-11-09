@@ -9,6 +9,13 @@
 const $ = (id) => document.getElementById(id);
 const CONFIG = globalThis.SCREENREC_CONFIG || {};
 const params = new URLSearchParams(location.search);
+// Inside the extension (?embed=…): github = only the GitHub issue window (older editor),
+// create = the "Create a link / GitHub issue" dialog after a capture, panel = just its right side
+// (next to the screenshot editor).
+const embedMode = window.parent !== window ? params.get('embed') : null;
+const embedded = Boolean(embedMode);
+const embedGh = embedMode === 'github';
+const tellParent = (msg) => embedded && window.parent.postMessage({ source: 'bugsnap-embed', ...msg }, '*');
 const driveMode = Boolean(CONFIG.driveApiKey);
 const id = driveMode ? params.get('id') || '' : location.pathname.split('/').filter(Boolean).pop();
 const videoParam = params.get('v') || '';
@@ -148,6 +155,26 @@ async function fetchRecording() {
   return res.ok ? res.json() : null;
 }
 
+/** Fade out the loading screen: once the video (or screenshot) can show, or after a while anyway. */
+function hideBoot() {
+  const el = $('boot');
+  if (!el || el.classList.contains('out')) return;
+  el.classList.add('out');
+  setTimeout(() => el.remove(), 400);
+}
+setTimeout(hideBoot, 12000);
+
+function hideBootWhenShown() {
+  if (!rec || rec.status !== 'ready' || fallbackActive) return hideBoot();
+  if (isShot()) {
+    const img = $('shot');
+    return img.complete && img.naturalWidth ? hideBoot() : (img.addEventListener('load', hideBoot, { once: true }), img.addEventListener('error', hideBoot, { once: true }));
+  }
+  if (video.readyState >= 2) return hideBoot();
+  video.addEventListener('loadeddata', hideBoot, { once: true });
+  video.addEventListener('error', hideBoot, { once: true });
+}
+
 async function load() {
   paintIcons();
   if (driveMode) {
@@ -155,8 +182,11 @@ async function load() {
     // The video id is in the link, so streaming starts while the logs load.
     if (videoParam) video.src = driveMedia(videoParam);
   }
+  if (embedded) document.documentElement.classList.add('embed', `embed-${embedMode}`);
   rec = await fetchRecording().catch(() => null);
+  if (embedded && (driveMode || !rec)) return tellParent({ type: 'error', message: rec ? 'This needs the BugSnap server.' : 'Not found on the BugSnap server.' });
   if (!rec) {
+    hideBoot();
     if (driveMode && videoParam) return useDriveFallback('Recording details could not be loaded, so steps and logs are not shown. The video plays in Google Drive’s player.');
     document.querySelector('.topbar').hidden = true;
     $('layout').hidden = true;
@@ -165,12 +195,21 @@ async function load() {
     return;
   }
   render();
+  hideBootWhenShown();
   if (needsPoll()) poll();
   const tab = location.hash.slice(1);
   document.querySelector(`[data-tab="${CSS.escape(tab)}"]`)?.click();
   const t = Number(params.get('t'));
   if (t > 0) video.addEventListener('loadedmetadata', () => (video.currentTime = t), { once: true });
   if (!driveMode && params.has('review')) openReview();
+  if (!driveMode && (params.has('create') || embedMode === 'create' || embedMode === 'panel')) {
+    openCreate();
+    tellParent({ type: 'ready' });
+  }
+  if (embedGh) {
+    openGitHub();
+    tellParent({ type: 'ready' });
+  }
 }
 
 const uploading = (r) => ['pending', 'uploading', 'reserved'].includes(r?.drive?.status);
@@ -187,11 +226,13 @@ function poll() {
       const t = video.currentTime;
       rec = r;
       render();
+      crMedia();
       if (t) video.addEventListener('loadedmetadata', () => (video.currentTime = t), { once: true });
     } else {
       rec = { ...rec, drive: r.drive, shareUrl: r.shareUrl, driveConnected: r.driveConnected, meta: r.meta || rec.meta };
       renderBanner();
       renderDetails();
+      crNote();
     }
     if (!needsPoll()) clearInterval(pollTimer);
   }, driveMode ? 5000 : 2500);
@@ -237,7 +278,7 @@ function render() {
     } else {
       const src = `/api/recordings/${encodeURIComponent(id)}/video`;
       // The version query makes the browser fetch the processed file once it replaces the raw one.
-      const want = `${src}?v=${encodeURIComponent(rec.processing ? 'p' : rec.updatedAt || '')}`;
+      const want = `${src}?v=${encodeURIComponent(rec.videoRev ? `t${rec.videoRev}` : rec.processing ? 'p' : rec.updatedAt || '')}`;
       if (!video.src.endsWith(want)) video.src = want;
       if (rec.hasPoster) video.poster = `/api/recordings/${encodeURIComponent(id)}/poster`;
       $('download').href = src;
@@ -254,11 +295,11 @@ function render() {
   const str = (v) => (v === undefined || v === null ? undefined : String(v));
   const events = (rec.events || [])
     .filter((e) => e && typeof e.ts === 'number')
-    .map((e) => ({ ...e, text: str(e.text), message: str(e.message) ?? '', url: str(e.url), method: str(e.method), selector: str(e.selector), stack: str(e.stack), source: str(e.source), responseBody: str(e.responseBody), level: str(e.level), status: Number(e.status) || 0 }));
+    .map((e) => ({ ...e, text: str(e.text), message: str(e.message) ?? '', url: str(e.url), method: str(e.method), selector: str(e.selector), stack: str(e.stack), source: str(e.source), responseBody: str(e.responseBody), level: str(e.level), status: e.status === undefined || e.status === null ? undefined : Number(e.status) || 0 }));
   const byTime = (a, b) => offsetOf(a) - offsetOf(b);
   lists.steps = events.filter((e) => e.type === 'action' || e.type === 'navigation').sort(byTime);
   lists.console = events.filter((e) => e.type === 'console').sort(byTime);
-  lists.network = events.filter((e) => e.type === 'network').sort(byTime);
+  lists.network = mergeNetwork(events.filter((e) => e.type === 'network')).sort(byTime);
 
   setCount('steps', lists.steps.length);
   setCount('console', lists.console.length, lists.console.filter((e) => e.level === 'error').length, 'error');
@@ -451,6 +492,7 @@ function renderBanner() {
 
 // When Google won't stream the file to us (throttled or blocked), Drive's own player still works.
 function useDriveFallback(message) {
+  hideBoot();
   const vid = rec?.video?.id || videoParam;
   if (!vid || fallbackActive) return;
   fallbackActive = true;
@@ -577,37 +619,367 @@ function renderConsole() {
   $('list-console').replaceChildren(...(items.length ? items : [empty('terminal-window', 'No console messages')]));
 }
 
+// ---------------------------------------------------------------- Network (like the browser's panel)
+// Rows come from up to three sources per request: the page hook (fetch/XHR/WebSocket: headers
+// and bodies), Chrome's request API (every request: status, headers, IP, cache) and Resource
+// Timing (sizes, timing breakdown). They are merged here into one row per request.
+
+const NET_TYPES = {
+  fetch: 'fetch', xhr: 'xhr', xmlhttprequest: 'xhr', beacon: 'ping', ping: 'ping',
+  document: 'document', main_frame: 'document', navigation: 'document', sub_frame: 'document', iframe: 'document', frame: 'document',
+  stylesheet: 'stylesheet', css: 'stylesheet', link: 'stylesheet',
+  script: 'script',
+  image: 'image', img: 'image', imageset: 'image', svg: 'image', image_: 'image',
+  font: 'font',
+  media: 'media', video: 'media', audio: 'media', track: 'media',
+  websocket: 'websocket',
+};
+const netType = (ev) => {
+  const raw = String(ev.resourceType || ev.via || '').toLowerCase();
+  if (NET_TYPES[raw]) return NET_TYPES[raw];
+  if (raw === 'other' || raw === 'timing') {
+    const ct = String(ev.contentType || '');
+    if (/css/.test(ct)) return 'stylesheet';
+    if (/javascript/.test(ct)) return 'script';
+    if (/^image\//.test(ct)) return 'image';
+    if (/font/.test(ct)) return 'font';
+    if (/^(video|audio)\//.test(ct)) return 'media';
+  }
+  return ev.via === 'fetch' ? 'fetch' : ev.via === 'xhr' ? 'xhr' : 'other';
+};
+const NET_CHIP = { fetch: 'fetch', xhr: 'fetch', document: 'doc', stylesheet: 'css', script: 'js', font: 'font', image: 'img', media: 'media', websocket: 'ws' };
+const netChip = (ev) => NET_CHIP[ev.netType] || 'other';
+const netStart = (ev) => (typeof ev.startedAt === 'number' ? ev.startedAt : ev.ts);
+
+/** One row per request, with every field the sources had. Old recordings pass through as they are. */
+function mergeNetwork(events) {
+  // WebSockets report several times: keep the newest copy of each.
+  const latest = new Map();
+  const plain = [];
+  for (const e of events) {
+    if (e.reqId && e.via === 'websocket') latest.set(e.reqId, e);
+    else plain.push(e);
+  }
+  const all = [...plain, ...latest.values()];
+  const hook = all.filter((e) => e.via !== 'web' && e.via !== 'timing');
+  const web = all.filter((e) => e.via === 'web');
+  const timing = all.filter((e) => e.via === 'timing');
+  const key = (e) => `${String(e.method || 'GET').toUpperCase()} ${e.url}`;
+  const near = (a, b, ms = 2000) => Math.abs(netStart(a) - netStart(b)) <= ms;
+  const rows = hook.map((e) => ({ ...e }));
+  const byKey = new Map();
+  for (const r of rows) {
+    const k = r.netType === 'websocket' || r.via === 'websocket' ? `GET ${String(r.url).replace(/^http/, 'ws')}` : key(r);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
+  }
+  for (const w of web) {
+    const k = w.resourceType === 'websocket' ? `GET ${String(w.url).replace(/^http/, 'ws')}` : key(w);
+    const match = (byKey.get(k) || []).find((r) => !r._web && near(r, w));
+    if (match) {
+      match._web = true;
+      for (const f of ['ip', 'fromCache', 'statusLine', 'initiator', 'frame']) if (match[f] === undefined && w[f] !== undefined) match[f] = w[f];
+      if (!match.responseHeaders) match.responseHeaders = w.responseHeaders;
+      if (!match.requestHeaders) match.requestHeaders = w.requestHeaders;
+      // The browser saw the cookies and real status even when the page could not.
+      match.browserRequestHeaders = w.requestHeaders;
+      if (!match.status && w.status) match.status = w.status;
+      if (!match.error && w.error) match.error = w.error;
+    } else {
+      const r = { ...w };
+      rows.push(r);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(r);
+    }
+  }
+  const byUrl = new Map();
+  for (const r of rows) {
+    if (!byUrl.has(r.url)) byUrl.set(r.url, []);
+    byUrl.get(r.url).push(r);
+  }
+  for (const t of timing) {
+    const match = (byUrl.get(t.url) || []).find((r) => !r._timing && near(r, t, 3000));
+    if (match) {
+      match._timing = true;
+      Object.assign(match, {
+        timing: t.timing,
+        transferSize: t.transferSize,
+        encodedSize: t.encodedSize,
+        decodedSize: t.decodedSize,
+        protocol: match.protocol || t.protocol,
+        renderBlocking: t.renderBlocking,
+        cache: match.cache || t.cache,
+      });
+      if (match.status === undefined && t.status) match.status = t.status;
+      if (!match.contentType && t.contentType) match.contentType = t.contentType;
+      if ((match.resourceType === 'other' || !match.resourceType) && t.resourceType) match.resourceType = t.resourceType;
+    } else rows.push({ ...t });
+  }
+  for (const r of rows) r.netType = netType(r);
+  return rows;
+}
+
+const kb = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} kB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+function netSize(ev) {
+  if (ev.fromCache || ev.cache) return ev.decodedSize ? `(cache) ${kb(ev.decodedSize)}` : '(cache)';
+  const n = ev.transferSize || ev.size || ev.encodedSize || ev.bodySize || (ev.netType === 'websocket' ? (ev.sentBytes || 0) + (ev.receivedBytes || 0) : 0);
+  return n ? kb(n) : '–';
+}
+const netTime = (ev) => (ev.netType === 'websocket' ? (ev.closed ? `${(ev.durationMs / 1000).toFixed(1)} s` : 'open') : ev.durationMs !== undefined ? (ev.durationMs >= 1000 ? `${(ev.durationMs / 1000).toFixed(2)} s` : `${ev.durationMs} ms`) : '–');
+const NET_TYPE_LABEL = { fetch: 'fetch', xhr: 'xhr', document: 'document', stylesheet: 'stylesheet', script: 'script', image: 'image', font: 'font', media: 'media', websocket: 'websocket', ping: 'ping', other: 'other' };
+function netName(url) {
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split('/').filter(Boolean).pop() || u.host;
+    return decodeURIComponent(last) + u.search;
+  } catch {
+    return String(url || '');
+  }
+}
+const statusTone = (code) => (!code ? 's0' : code >= 500 ? 's5' : code >= 400 ? 's4' : code >= 300 ? 's3' : 's2');
+
+let netFilter = 'all';
+let netOpen = null; // index in lists.network of the row in the detail view
+let netTab = 'headers';
+
 function renderNetwork() {
-  const items = lists.network.map((ev) => {
+  const total = timelineDuration() || 1;
+  const items = lists.network.map((ev, i) => {
     const bad = isNetError(ev);
-    const detail = h(
-      'div',
-      { class: 'details-box', hidden: true, onclick: (e) => e.stopPropagation() },
-      `${ev.method} ${ev.url}\n`,
-      `Status   ${ev.status || 'failed'} ${ev.statusText || ''}\n`,
-      ev.contentType ? `Type     ${ev.contentType}\n` : '',
-      ev.durationMs !== undefined ? `Time     ${ev.durationMs} ms\n` : '',
-      ev.error ? `Error    ${ev.error}\n` : '',
-      ev.responseBody ? `\nResponse\n${ev.responseBody}` : '',
-    );
-    const toggle = h('button', { class: 'more', type: 'button', onclick: (e) => { e.stopPropagation(); detail.hidden = !detail.hidden; toggle.textContent = detail.hidden ? 'Details' : 'Hide'; } }, 'Details');
-    const code = ev.status || 0;
-    const statusTone = !code ? 's0' : code >= 500 ? 's5' : code >= 400 ? 's4' : code >= 300 ? 's3' : 's2';
+    const off = offsetOf(ev);
+    const code = ev.status;
     const method = (ev.method || 'GET').toUpperCase();
-    return row(ev, {
-      cls: bad ? 'bad' : '',
-      glyph: bad ? 'warning-circle' : 'globe-simple',
-      tone: bad ? 'error' : 'net',
-      body: [
-        h('div', { class: 'text' }, h('span', { class: `status ${statusTone}` }, code || 'ERR'), h('span', { class: `method m-${method.toLowerCase()}` }, method), pathOf(ev.url)),
-        h('div', { class: 'sub' }, [hostOf(ev.url), ev.durationMs !== undefined ? `${ev.durationMs} ms` : null].filter(Boolean).join('  ·  ')),
-        toggle,
-        detail,
-      ],
-    });
+    const left = Math.min(100, (off / total) * 100);
+    const width = Math.max(0.6, Math.min(100 - left, ((ev.durationMs || 0) / 1000 / total) * 100));
+    const li = h(
+      'li',
+      { class: `net-row${bad ? ' bad' : ''}`, role: 'row', tabindex: '-1', title: ev.url, onclick: () => openNetDetail(i) },
+      h('span', { class: 'c-n' }, String(i + 1)),
+      h('span', { class: 'c-name' }, h('span', { class: `net-ic t-${ev.netType}` }), h('span', { class: 'txt' }, netName(ev.url))),
+      h('span', { class: `c-method method m-${method.toLowerCase()}` }, method),
+      h('span', { class: 'c-status' }, code === undefined ? h('span', { class: 'muted-sm' }, '–') : h('span', { class: `status ${statusTone(code)}` }, code || (ev.error ? 'failed' : 'ERR'))),
+      h('span', { class: 'c-domain' }, hostOf(ev.url)),
+      h('span', { class: 'c-type' }, NET_TYPE_LABEL[ev.netType] || ev.netType),
+      h('span', { class: 'c-size' }, netSize(ev)),
+      h('span', { class: 'c-time' }, netTime(ev)),
+      h('span', { class: 'c-wf' }, h('span', { class: `wf-bar${bad ? ' bad' : ''}`, style: `left:${left}%;width:${width}%` })),
+    );
+    li._off = off;
+    li._ev = ev;
+    return li;
   });
   $('list-network').replaceChildren(...(items.length ? items : [empty('globe-simple', 'No requests captured')]));
+  $('netHead').hidden = !items.length;
+  if (netOpen !== null && !lists.network[netOpen]) closeNetDetail();
 }
+
+function netMatches(ev) {
+  if (netFilter !== 'all' && netChip(ev) !== netFilter) return false;
+  if ($('netErrors').checked && !isNetError(ev)) return false;
+  return true;
+}
+
+// ---- detail view: Headers / Payload / Response / Timing (/ Messages for WebSockets)
+
+function kvTable(rows) {
+  const list = rows.filter((r) => r && r[1] !== undefined && r[1] !== null && r[1] !== '');
+  if (!list.length) return h('p', { class: 'nd-empty' }, 'Nothing recorded');
+  return h('dl', { class: 'nd-kv' }, ...list.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, String(v))]));
+}
+
+function ndSection(title, ...content) {
+  return h('section', { class: 'nd-sec' }, h('h4', {}, title), ...content);
+}
+
+function prettyBody(text, contentType = '') {
+  if (!text) return null;
+  const t = String(text);
+  if (/json/i.test(contentType) || /^\s*[[{]/.test(t)) {
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch {
+      /* cut off or not JSON */
+    }
+  }
+  return t;
+}
+
+function bodyBlock(text, contentType, emptyText) {
+  const pretty = prettyBody(text, contentType);
+  if (!pretty) return h('p', { class: 'nd-empty' }, emptyText);
+  const copy = h('button', { type: 'button', class: 'btn sm nd-copy' }, icon('copy'), h('span', {}, 'Copy'));
+  copy.addEventListener('click', async () => {
+    const ok = await copyText(String(text));
+    flash(copy, ok ? 'check' : 'warning-circle', ok ? 'Copied' : "Couldn't copy");
+  });
+  return h('div', { class: 'nd-body-wrap' }, copy, h('pre', { class: 'nd-pre' }, pretty));
+}
+
+function queryRows(url) {
+  try {
+    return [...new URL(url).searchParams.entries()];
+  } catch {
+    return [];
+  }
+}
+
+function netTabs(ev) {
+  const tabs = [['headers', 'Headers']];
+  if (ev.netType === 'websocket') tabs.push(['messages', `Messages${ev.messages?.length ? ` (${ev.messages.length})` : ''}`]);
+  else {
+    tabs.push(['payload', 'Payload'], ['response', 'Response']);
+  }
+  tabs.push(['timing', 'Timing']);
+  return tabs;
+}
+
+function renderNetDetail() {
+  const ev = lists.network[netOpen];
+  if (!ev) return;
+  const tabs = netTabs(ev);
+  if (!tabs.some(([k]) => k === netTab)) netTab = 'headers';
+  $('ndTitle').replaceChildren(
+    h('span', { class: `status ${statusTone(ev.status)}` }, ev.status === undefined ? '–' : ev.status || 'ERR'),
+    h('span', { class: `method m-${String(ev.method || 'GET').toLowerCase()}` }, String(ev.method || 'GET').toUpperCase()),
+    h('span', { class: 'txt' }, netName(ev.url)),
+  );
+  $('ndTabs').replaceChildren(
+    ...tabs.map(([k, label]) => {
+      const b = h('button', { type: 'button', role: 'tab', class: k === netTab ? 'on' : '', 'aria-selected': String(k === netTab) }, label);
+      b.addEventListener('click', () => {
+        netTab = k;
+        renderNetDetail();
+      });
+      return b;
+    }),
+  );
+  const off = offsetOf(ev);
+  let body;
+  if (netTab === 'headers') {
+    body = [
+      ndSection(
+        'General',
+        kvTable([
+          ['Request URL', ev.url],
+          ['Request method', String(ev.method || 'GET').toUpperCase()],
+          ['Status', ev.status === undefined ? 'unknown (the server did not share it)' : `${ev.status || 'failed'} ${ev.statusText || (ev.statusLine || '').replace(/^HTTP\/[\d.]+\s+\d+\s*/, '')}`.trim()],
+          ['Error', ev.error],
+          ['Type', NET_TYPE_LABEL[ev.netType] || ev.netType],
+          ['Remote address', ev.ip],
+          ['Protocol', ev.protocol],
+          ['Served from', ev.fromCache || ev.cache ? 'browser cache' : undefined],
+          ['Initiator', ev.initiator],
+          ['Redirected', ev.redirected ? 'yes' : undefined],
+          ['Response type', ev.responseType],
+          ['Render blocking', ev.renderBlocking ? 'yes' : undefined],
+          ['At', `${fmt(off)} in the recording`],
+        ]),
+      ),
+      ndSection(`Response headers${ev.responseHeaders ? ` (${ev.responseHeaders.length})` : ''}`, kvTable(ev.responseHeaders || [])),
+      ndSection(`Request headers${ev.requestHeaders ? ` (${ev.requestHeaders.length})` : ''}`, kvTable(ev.requestHeaders || [])),
+    ];
+    if (ev.browserRequestHeaders && ev.browserRequestHeaders !== ev.requestHeaders) body.push(ndSection('Request headers sent by the browser', kvTable(ev.browserRequestHeaders)));
+  } else if (netTab === 'payload') {
+    const q = queryRows(ev.url);
+    body = [
+      q.length ? ndSection(`Query string (${q.length})`, kvTable(q)) : null,
+      ndSection('Request body', bodyBlock(ev.requestBody, ev.requestHeaders?.find(([k]) => /^content-type$/i.test(k))?.[1], ['GET', 'HEAD'].includes(String(ev.method || 'GET').toUpperCase()) ? 'No body (GET request)' : 'No body recorded')),
+    ];
+  } else if (netTab === 'response') {
+    body = [
+      ndSection(
+        `Response${ev.bodySize ? ` · ${kb(ev.bodySize)}` : ''}`,
+        bodyBlock(ev.responseBody, ev.contentType, ev.netType === 'fetch' || ev.netType === 'xhr' ? 'No response body recorded (binary, streamed or empty)' : 'Bodies are recorded for fetch and XHR calls only'),
+      ),
+    ];
+  } else if (netTab === 'messages') {
+    const msgs = ev.messages || [];
+    body = [
+      ndSection('Connection', kvTable([['Sent', `${ev.sent || 0} messages · ${kb(ev.sentBytes || 0)}`], ['Received', `${ev.received || 0} messages · ${kb(ev.receivedBytes || 0)}`], ['Protocol', ev.protocol], ['Closed', ev.closed ? `code ${ev.closed.code}${ev.closed.reason ? ` · ${ev.closed.reason}` : ''}` : 'still open when the recording ended']])),
+      ndSection(
+        `Messages${msgs.length >= 100 ? ' (last 100)' : ''}`,
+        msgs.length
+          ? h('ol', { class: 'nd-msgs' }, ...msgs.map((m) => h('li', { class: m.dir }, h('span', { class: 'dir' }, m.dir === 'out' ? '↑' : '↓'), h('code', {}, m.text), h('span', { class: 'muted-sm' }, `${(m.at / 1000).toFixed(2)} s`))))
+          : h('p', { class: 'nd-empty' }, 'No messages'),
+      ),
+    ];
+  } else {
+    const t = ev.timing || {};
+    const phases = [['Queued', t.queued], ['Redirect', t.redirect], ['DNS lookup', t.dns], ['Initial connection', t.connect], ['SSL', t.tls], ['Waiting for server (TTFB)', t.waiting ?? ev.headersMs], ['Content download', t.download]].filter(([, v]) => typeof v === 'number' && v >= 0);
+    const max = Math.max(1, ...phases.map(([, v]) => v), ev.durationMs || 0);
+    body = [
+      ndSection('When', kvTable([['Started at', `${fmt(off)} in the recording`], ['Total time', ev.durationMs !== undefined ? `${ev.durationMs} ms` : undefined], ['Transferred', ev.transferSize ? kb(ev.transferSize) : undefined], ['Body size', ev.decodedSize ? kb(ev.decodedSize) : ev.bodySize ? kb(ev.bodySize) : undefined]])),
+      ndSection(
+        'Breakdown',
+        phases.length
+          ? h('div', { class: 'nd-phases' }, ...phases.map(([k, v]) => h('div', { class: 'nd-phase' }, h('span', {}, k), h('span', { class: 'bar' }, h('span', { style: `width:${Math.max(1, (v / max) * 100)}%` })), h('span', { class: 'ms' }, `${v} ms`))))
+          : h('p', { class: 'nd-empty' }, 'The server did not share timing details (cross-origin request without Timing-Allow-Origin).'),
+      ),
+    ];
+  }
+  $('ndBody').replaceChildren(...body.filter(Boolean));
+  $('ndBody').scrollTop = 0;
+  const rows = [...$('list-network').children];
+  rows.forEach((li, i) => li.classList.toggle('open', i === netOpen));
+}
+
+function openNetDetail(i) {
+  netOpen = i;
+  $('netDetail').hidden = false;
+  $('pane-network').classList.add('detail-open');
+  renderNetDetail();
+  const li = $('list-network').children[i];
+  li?.scrollIntoView({ block: 'nearest' });
+  if (li) seek(li._off - 0.5);
+}
+
+function closeNetDetail() {
+  netOpen = null;
+  $('netDetail').hidden = true;
+  $('pane-network').classList.remove('detail-open');
+  [...$('list-network').children].forEach((li) => li.classList.remove('open'));
+}
+
+function stepNetDetail(dir) {
+  if (netOpen === null) return;
+  const rows = [...$('list-network').children];
+  for (let i = netOpen + dir; i >= 0 && i < rows.length; i += dir) {
+    if (!rows[i].hidden) return openNetDetail(i);
+  }
+}
+
+$('ndClose').addEventListener('click', closeNetDetail);
+$('ndPrev').addEventListener('click', () => stepNetDetail(-1));
+$('ndNext').addEventListener('click', () => stepNetDetail(1));
+$('netDetail').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    closeNetDetail();
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    stepNetDetail(e.key === 'ArrowUp' ? -1 : 1);
+  }
+});
+document.querySelectorAll('[data-net]').forEach((b) =>
+  b.addEventListener('click', () => {
+    netFilter = b.dataset.net;
+    document.querySelectorAll('[data-net]').forEach((x) => x.classList.toggle('on', x === b));
+    applyFilter();
+  }),
+);
+$('netErrors').addEventListener('change', applyFilter);
+$('netWide').addEventListener('click', () => {
+  const layout = $('layout');
+  const wide = !layout.classList.contains('net-wide');
+  layout.classList.toggle('net-wide', wide);
+  setIcon($('netWide'), wide ? 'corners-in' : 'arrows-out-simple');
+  $('netWide').dataset.tip = wide ? 'Narrower panel' : 'Wider panel';
+});
+// The table changes its columns with the panel width.
+new ResizeObserver(() => {
+  const w = $('pane-network').clientWidth;
+  $('pane-network').dataset.size = w >= 760 ? 'wide' : w >= 540 ? 'mid' : 'narrow';
+}).observe($('pane-network'));
 
 function osIcon(os = '') {
   if (/windows/i.test(os)) return 'windows-logo';
@@ -641,6 +1013,8 @@ function renderInfo() {
     ['Duration', durationSec ? fmt(durationSec) : undefined],
     [isShot() ? 'Captured by' : 'Recorded by', meta.reporter],
     ['GitHub issue', rec.github?.length ? [icon('github-logo'), ...rec.github.map((g, i) => [i ? ', ' : '', link(g.url, `#${g.number}`)]).flat()] : undefined],
+    ['From recording', rec.fromRecordingInfo ? [icon('video-camera'), link(atTime(rec.fromRecordingInfo.viewerUrl, rec.fromRecordingInfo.at), `${rec.fromRecordingInfo.title} at ${fmt(rec.fromRecordingInfo.at)}`)] : undefined],
+    ['Frames', rec.frameShots?.length ? [icon('camera'), ...rec.frameShots.map((f, i) => [i ? ', ' : '', link(f.viewerUrl, fmt(f.at))]).flat()] : undefined],
     ['Type', isShot() ? `Screenshot${rec.image?.width ? ` (${rec.image.width} × ${rec.image.height})` : ''}` : meta.mode === 'desktop' ? `Screen (${{ monitor: 'entire screen', window: 'window', browser: 'browser tab' }[env.displaySurface] || 'screen'})` : 'Browser tab'],
     ['Location', loc && loc.latitude !== undefined
       ? [icon('map-pin'), link(`https://www.openstreetmap.org/?mlat=${loc.latitude}&mlon=${loc.longitude}#map=14/${loc.latitude}/${loc.longitude}`, `${loc.latitude.toFixed(3)}, ${loc.longitude.toFixed(3)}`)]
@@ -694,6 +1068,30 @@ function timelineDuration() {
 
 // ---------------------------------------------------------------- bug report draft
 
+/** Drive image address for a public screenshot file, so GitHub shows it inline. */
+const driveImage = (fileId) => (fileId && /^[\w-]+$/.test(fileId) ? `https://lh3.googleusercontent.com/d/${fileId}=w4000` : '');
+
+/** Markdown images for the issue: this screenshot, or the frames captured from this recording. */
+function imageLines() {
+  if (isShot()) {
+    const url = driveImage(rec?.drive?.videoId);
+    return url ? [`![Screenshot](${url})`] : [];
+  }
+  return (rec?.frameShots || []).filter((f) => driveImage(f.fileId)).map((f) => `![Frame at ${fmt(f.at)}](${driveImage(f.fileId)})`);
+}
+
+/** Add those images under "## Attachments" (or at the end), each once. */
+function withShotImage(text) {
+  const lines = imageLines().filter((l) => !text.includes(l));
+  if (!lines.length) return text;
+  const block = lines.join('\n');
+  const m = /^##\s*Attachments[^\n]*\n/im.exec(text);
+  if (m) return text.slice(0, m.index + m[0].length) + block + '\n' + text.slice(m.index + m[0].length);
+  return `${text}${text ? '\n\n' : ''}## Attachments\n${block}`;
+}
+
+const atTime = (url, sec) => `${url}${url.includes('?') ? '&' : '?'}t=${Math.floor(sec)}`;
+
 function buildReport() {
   const meta = rec.meta || {};
   const env = meta.env || {};
@@ -725,13 +1123,15 @@ function buildReport() {
     '',
     '## Preconditions',
     `- Start on: ${meta.startUrl || 'unknown'}`,
-    `- ${env.browser || 'Unknown browser'} on ${env.os || meta.platform?.os || 'unknown OS'}, window ${size(meta.window)}, viewport ${size(meta.viewport)}`,
+    `- ${env.browser || 'Unknown browser'} on ${env.os || meta.platform?.os || 'unknown OS'}${meta.window?.width ? `, window ${size(meta.window)}` : ''}${meta.viewport?.width ? `, viewport ${size(meta.viewport)}` : ''}`,
     '',
     '## Steps to reproduce',
     ...(steps.length ? steps.map((e, i) => `${i + 1}. ${e.text}`) : isShot() ? [`1. Go to ${meta.startUrl || 'the page'}`, '2. _Describe what to do to see the problem._'] : ['1. _No steps captured_']),
     '',
     '## Attachments',
+    ...imageLines(),
     `- ${isShot() ? 'Screenshot' : 'Recording'}: ${link}`,
+    ...(rec.fromRecordingInfo ? [`- From recording at ${fmt(rec.fromRecordingInfo.at)}: ${atTime(rec.fromRecordingInfo.shareUrl || rec.fromRecordingInfo.viewerUrl, rec.fromRecordingInfo.at)}`] : []),
     ...evidence,
     '',
     '## Actual result',
@@ -906,6 +1306,7 @@ document.querySelectorAll('[data-tab]').forEach((b) =>
     if (activeTab === 'report') checkAi();
     $('toolbar').hidden = activeTab === 'info' || activeTab === 'report';
     $('levels').hidden = activeTab !== 'console';
+    $('netBar').hidden = activeTab !== 'network';
     applyFilter();
     sync();
   }),
@@ -921,6 +1322,7 @@ function applyFilter() {
     let show = !q || li.textContent.toLowerCase().includes(q);
     if (activeTab === 'console' && level === 'error') show &&= ev.level === 'error';
     if (activeTab === 'console' && level === 'warn') show &&= ev.level === 'error' || ev.level === 'warn';
+    if (activeTab === 'network') show &&= netMatches(ev);
     li.hidden = !show;
   }
 }
@@ -930,7 +1332,7 @@ $('search').addEventListener('input', applyFilter);
 (() => {
   const layout = $('layout');
   const handle = $('resizer');
-  const clamp = (w) => Math.round(Math.max(320, Math.min(w, Math.min(900, window.innerWidth * 0.7))));
+  const clamp = (w) => Math.round(Math.max(320, Math.min(w, Math.min(1200, window.innerWidth * 0.75))));
   const apply = (w) => layout.style.setProperty('--side-w', `${clamp(w)}px`);
   const save = () => {
     try {
@@ -1200,7 +1602,7 @@ if (!driveMode) {
 
 // ---------------------------------------------------------------- GitHub issue (local server only)
 
-const ghState = { meta: null, labels: new Set(), assignees: new Set() };
+const ghState = { repos: [], repo: new Set(), meta: null, labels: new Set(), assignees: new Set(), milestone: new Set(), projects: [], projectsError: null, boards: new Set(), fieldSel: {} };
 
 function ghError(message) {
   $('ghAlert').hidden = !message;
@@ -1214,59 +1616,483 @@ async function ghJson(url, opts) {
   return body;
 }
 
-function chipsFor(container, items, selected, render) {
-  if (!items.length) return container.replaceChildren(h('span', { class: 'muted-sm' }, 'None in this repository'));
-  container.replaceChildren(
-    ...items.map((item) => {
-      const key = render.key(item);
-      const b = h('button', { type: 'button', class: `chip-btn${selected.has(key) ? ' on' : ''}`, title: render.title?.(item) }, ...render.content(item));
-      b.addEventListener('click', () => {
-        selected.has(key) ? selected.delete(key) : selected.add(key);
-        b.classList.toggle('on', selected.has(key));
+// ---- Searchable picker: one popover used for repository, labels, assignees and milestone.
+
+let openPop = null;
+
+function closePop() {
+  if (!openPop) return;
+  const { el, trigger, onClose } = openPop;
+  el.remove();
+  trigger.setAttribute('aria-expanded', 'false');
+  openPop = null;
+  onClose?.();
+}
+
+/**
+ * cfg: { title, items, key, name, sub?, lead?, tail?, selected (Set), multi?, toggle?, placeholder, empty, onChange }
+ * Multi pickers stay open while you tick items; single pickers close on choice.
+ */
+function showPicker(trigger, cfg) {
+  if (openPop?.trigger === trigger) return closePop();
+  closePop();
+  const input = h('input', { type: 'text', placeholder: cfg.placeholder || 'Search', autocomplete: 'off', spellcheck: 'false', 'aria-label': cfg.placeholder || 'Search' });
+  const list = h('div', { class: 'pop-list', role: 'listbox', 'aria-multiselectable': cfg.multi ? 'true' : undefined });
+  const clear = cfg.multi || cfg.toggle ? h('button', { type: 'button' }, 'Clear') : null;
+  const el = h('div', { class: 'pop' }, h('div', { class: 'pop-head' }, h('span', {}, cfg.title), clear), h('label', { class: 'pop-search' }, icon('magnifying-glass'), input), list);
+  let shown = [];
+  let act = 0;
+
+  const mark = () => [...list.children].forEach((r, i) => r.classList.toggle('act', i === act));
+  const reveal = () => list.children[act]?.scrollIntoView({ block: 'nearest' });
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    shown = cfg.items.filter((it) => !q || `${cfg.name(it)} ${cfg.sub?.(it) || ''}`.toLowerCase().includes(q));
+    const typed = input.value.trim();
+    const canCreate = cfg.create && typed && !cfg.items.some((it) => cfg.name(it).toLowerCase() === typed.toLowerCase());
+    act = Math.min(act, Math.max(0, shown.length - (canCreate ? 0 : 1)));
+    const createRow = () => {
+      const row = h('div', { class: `pop-item pop-create${act === shown.length ? ' act' : ''}`, role: 'option' }, icon('plus'), h('span', { class: 'main' }, h('span', { class: 'name' }, `${cfg.createLabel || 'Create'} “${typed}”`)));
+      row.addEventListener('mousedown', (e) => e.preventDefault());
+      row.addEventListener('click', () => choose(shown.length));
+      return row;
+    };
+    if (!shown.length) return list.replaceChildren(canCreate ? createRow() : h('div', { class: 'pop-empty' }, cfg.items.length ? 'No matches' : cfg.empty || 'Nothing here'));
+    list.replaceChildren(
+      ...shown.map((it, i) => {
+        const sub = cfg.sub?.(it);
+        const row = h(
+          'div',
+          { class: `pop-item${i === act ? ' act' : ''}`, role: 'option', 'aria-selected': String(cfg.selected.has(cfg.key(it))) },
+          icon('check', 'icon check'),
+          cfg.lead?.(it),
+          h('span', { class: 'main' }, h('span', { class: 'name' }, cfg.name(it)), sub ? h('span', { class: 'sub' }, sub) : null),
+          cfg.tail?.(it),
+        );
+        row.addEventListener('mousedown', (e) => e.preventDefault());
+        row.addEventListener('click', () => choose(i));
+        row.addEventListener('mousemove', () => act !== i && ((act = i), mark()));
+        return row;
+      }),
+      ...(canCreate ? [createRow()] : []),
+    );
+  };
+  const choose = (i) => {
+    if (i === shown.length && cfg.create && input.value.trim()) {
+      const name = input.value.trim();
+      closePop();
+      trigger.focus();
+      return cfg.create(name);
+    }
+    const it = shown[i];
+    if (!it) return;
+    const k = cfg.key(it);
+    if (cfg.multi) {
+      cfg.selected.has(k) ? cfg.selected.delete(k) : cfg.selected.add(k);
+      list.children[i]?.setAttribute('aria-selected', String(cfg.selected.has(k)));
+      cfg.onChange();
+      return;
+    }
+    const was = cfg.selected.has(k);
+    cfg.selected.clear();
+    if (!(was && cfg.toggle)) cfg.selected.add(k);
+    cfg.onChange();
+    closePop();
+    trigger.focus();
+  };
+
+  clear?.addEventListener('click', () => {
+    cfg.selected.clear();
+    cfg.onChange();
+    if (cfg.multi) {
+      render();
+      input.focus();
+    } else {
+      closePop();
+      trigger.focus();
+    }
+  });
+  input.addEventListener('input', () => {
+    act = 0;
+    render();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      act = Math.min(list.children.length - 1, act + 1);
+      mark();
+      reveal();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      act = Math.max(0, act - 1);
+      mark();
+      reveal();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      choose(act);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closePop();
+      trigger.focus();
+    } else if (e.key === 'Tab') closePop();
+  });
+
+  // Single pickers open on the current choice; multi pickers list chosen items first.
+  if (cfg.multi) cfg.items = [...cfg.items.filter((it) => cfg.selected.has(cfg.key(it))), ...cfg.items.filter((it) => !cfg.selected.has(cfg.key(it)))];
+  else act = Math.max(0, cfg.items.findIndex((it) => cfg.selected.has(cfg.key(it))));
+  document.body.append(el);
+  el.classList.toggle('no-search', Boolean(cfg.noSearch));
+  render();
+
+  // Place under the trigger, or above it when there is more room there.
+  const r = trigger.getBoundingClientRect();
+  el.style.width = `${Math.min(Math.max(r.width, 280), window.innerWidth - 24)}px`;
+  el.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - el.offsetWidth - 12))}px`;
+  const below = window.innerHeight - r.bottom - 18;
+  const above = r.top - 18;
+  const up = el.offsetHeight > below && above > below;
+  el.classList.toggle('up', up);
+  if (up) el.style.bottom = `${window.innerHeight - r.top + 6}px`;
+  else el.style.top = `${r.bottom + 6}px`;
+  list.style.maxHeight = `${Math.max(120, Math.min(280, (up ? above : below) - 96))}px`;
+
+  trigger.setAttribute('aria-expanded', 'true');
+  openPop = { el, trigger, onClose: cfg.onClose };
+  reveal();
+  input.focus();
+}
+
+document.addEventListener('mousedown', (e) => {
+  if (openPop && !openPop.el.contains(e.target) && !openPop.trigger.contains(e.target)) closePop();
+});
+window.addEventListener('resize', closePop);
+
+// ---- What each picker button shows when closed: short, one line, never wraps.
+
+function setPickVal(btn, nodes, has) {
+  btn.querySelector('.pick-val').replaceChildren(...nodes.filter(Boolean));
+  btn.classList.toggle('has', Boolean(has));
+}
+
+const placeholder = (text) => h('span', { class: 'muted-sm' }, text);
+const more = (n) => (n > 0 ? h('span', { class: 'pv-more' }, `+${n}`) : null);
+
+function renderRepoPick() {
+  const r = ghState.repos.find((x) => ghState.repo.has(x.fullName));
+  setPickVal($('ghRepo'), r ? [icon('github-logo'), h('span', { class: 'txt' }, r.fullName), r.private ? icon('lock-simple', 'icon lock') : null] : [placeholder('Choose a repository')], r);
+}
+
+function renderLabelsPick() {
+  const sel = (ghState.meta?.labels || []).filter((l) => ghState.labels.has(l.name));
+  if (!sel.length) return setPickVal($('ghLabels'), [placeholder('Labels')]);
+  setPickVal($('ghLabels'), [h('span', { class: 'pv-dots' }, ...sel.slice(0, 3).map((l) => h('span', { class: 'pv-dot', style: `--c: #${l.color}` }))), h('span', { class: 'txt' }, sel[0].name), more(sel.length - 1)], true);
+}
+
+function renderAssigneesPick() {
+  const sel = (ghState.meta?.assignees || []).filter((a) => ghState.assignees.has(a.login));
+  if (!sel.length) return setPickVal($('ghAssignees'), [placeholder('Assignees')]);
+  setPickVal($('ghAssignees'), [h('span', { class: 'pv-avs' }, ...sel.slice(0, 3).map((a) => h('img', { src: a.avatar, alt: '' }))), h('span', { class: 'txt' }, sel[0].login), more(sel.length - 1)], true);
+}
+
+function renderMilestonePick() {
+  const m = (ghState.meta?.milestones || []).find((x) => ghState.milestone.has(String(x.number)));
+  setPickVal($('ghMilestone'), m ? [h('span', { class: 'txt' }, m.title)] : [placeholder('Milestone')], m);
+}
+
+function resetMetaPicks(loading) {
+  for (const id of ['ghLabels', 'ghAssignees', 'ghMilestone']) $(id).disabled = Boolean(loading);
+  renderLabelsPick();
+  renderAssigneesPick();
+  renderMilestonePick();
+}
+
+// ---- Project boards: pick any number, then each board's dropdown fields (Status, Priority, …).
+// The issue is added to the boards and the values are set right after it is created.
+
+const BOARD_COLORS = { GRAY: '#8b949e', BLUE: '#2f81f7', GREEN: '#2da44e', YELLOW: '#d4a72c', ORANGE: '#e16f24', RED: '#e5484d', PINK: '#db61a2', PURPLE: '#8250df' };
+const boardKey = (repo) => `bugsnap.gh.boards.${repo}`;
+
+function fieldSel(projectId, fieldId) {
+  ghState.fieldSel[projectId] ||= {};
+  return (ghState.fieldSel[projectId][fieldId] ||= new Set());
+}
+
+function rememberBoards() {
+  const repo = [...ghState.repo][0];
+  if (!repo) return;
+  const values = {};
+  for (const pid of ghState.boards) {
+    values[pid] = {};
+    for (const [fid, set] of Object.entries(ghState.fieldSel[pid] || {})) if (set.size) values[pid][fid] = [...set][0];
+  }
+  try {
+    localStorage.setItem(boardKey(repo), JSON.stringify({ boards: [...ghState.boards], values }));
+  } catch {
+    /* storage off: nothing to remember */
+  }
+}
+
+/** Last boards and values used with this repository, kept only where they still exist. */
+function restoreBoards(repo) {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(boardKey(repo)) || 'null');
+  } catch {
+    saved = null;
+  }
+  if (!saved) {
+    // First time with this repo: show boards made for bug details right away (linked to the
+    // repo and with their own dropdowns besides Status, e.g. Severity, Priority, Feature).
+    for (const p of ghState.projects) {
+      if (p.linked && p.fields.some((f) => f.name.trim().toLowerCase() !== 'status')) ghState.boards.add(p.id);
+    }
+    return;
+  }
+  for (const pid of saved?.boards || []) {
+    const p = ghState.projects.find((x) => x.id === pid);
+    if (!p) continue;
+    ghState.boards.add(pid);
+    for (const [fid, oid] of Object.entries(saved.values?.[pid] || {})) {
+      if (p.fields.some((f) => f.id === fid && f.options.some((o) => o.id === oid))) fieldSel(pid, fid).add(oid);
+    }
+  }
+}
+
+function renderProjectsPick() {
+  const sel = ghState.projects.filter((p) => ghState.boards.has(p.id));
+  if (!sel.length) return setPickVal($('ghProjects'), [placeholder('Project')]);
+  setPickVal($('ghProjects'), [icon('squares-four'), h('span', { class: 'txt' }, sel[0].title), more(sel.length - 1)], true);
+}
+
+function renderBoards() {
+  const sel = ghState.projects.filter((p) => ghState.boards.has(p.id));
+  $('ghBoards').replaceChildren(
+    ...sel.map((p) => {
+      const fields = p.fields.map((f) => {
+        const btn = h(
+          'button',
+          { type: 'button', class: 'pick meta field-pick', 'aria-haspopup': 'listbox', 'data-tip': `${f.name} on ${p.title}` },
+          h('span', { class: 'pick-val' }),
+          icon('caret-down', 'icon caret'),
+        );
+        const paint = () => {
+          const o = f.options.find((x) => fieldSel(p.id, f.id).has(x.id));
+          setPickVal(btn, o ? [h('span', { class: 'pv-field' }, f.name), h('span', { class: 'pv-dot', style: `--c: ${BOARD_COLORS[o.color] || '#999'}` }), h('span', { class: 'txt' }, o.name)] : [placeholder(f.name)], o);
+        };
+        paint();
+        btn.addEventListener('click', () =>
+          showPicker(btn, {
+            title: f.name,
+            placeholder: `Search ${f.name.toLowerCase()}`,
+            empty: 'No options',
+            toggle: true,
+            items: f.options,
+            key: (o) => o.id,
+            name: (o) => o.name,
+            lead: (o) => h('span', { class: 'pv-dot', style: `--c: ${BOARD_COLORS[o.color] || '#999'}` }),
+            selected: fieldSel(p.id, f.id),
+            onChange: () => {
+              paint();
+              rememberBoards();
+            },
+          }),
+        );
+        return btn;
       });
-      return b;
+      return h(
+        'div',
+        { class: 'gh-board' },
+        h(
+          'div',
+          { class: 'gh-board-head' },
+          icon('squares-four'),
+          h('span', { class: 'txt' }, p.title),
+          p.linked ? null : h('span', { class: 'pv-more' }, 'Not linked to this repo'),
+          h('span', { class: 'spacer' }),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn ghost icon-only sm gh-board-x',
+              'data-tip': `Don't add to ${p.title}`,
+              'aria-label': `Remove ${p.title}`,
+              onclick: () => {
+                ghState.boards.delete(p.id);
+                renderProjectsPick();
+                renderBoards();
+                rememberBoards();
+              },
+            },
+            icon('x'),
+          ),
+        ),
+        fields.length ? h('div', { class: 'gh-meta' }, ...fields) : h('span', { class: 'muted-sm' }, 'This board has no dropdown fields.'),
+      );
     }),
   );
 }
 
+async function loadProjects(repo) {
+  ghState.projects = [];
+  ghState.projectsError = null;
+  ghState.boards.clear();
+  ghState.fieldSel = {};
+  $('ghBoards').replaceChildren();
+  $('ghProjects').hidden = false;
+  $('ghProjects').disabled = true;
+  renderProjectsPick();
+  try {
+    const res = await ghJson(`/api/github/projects?repo=${encodeURIComponent(repo)}`);
+    if (!ghState.repo.has(repo)) return;
+    ghState.projects = res.projects || [];
+    ghState.projectsError = res.error || null;
+  } catch (err) {
+    if (!ghState.repo.has(repo)) return;
+    ghState.projectsError = err.message;
+  }
+  // No boards and nothing to explain: keep the row short.
+  $('ghProjects').hidden = !ghState.projects.length && !ghState.projectsError;
+  $('ghProjects').disabled = false;
+  restoreBoards(repo);
+  renderProjectsPick();
+  renderBoards();
+}
+
+/** What the server needs to put the new issue on boards. */
+function boardsPayload() {
+  return [...ghState.boards].map((pid) => ({
+    projectId: pid,
+    values: Object.fromEntries(Object.entries(ghState.fieldSel[pid] || {}).filter(([, s]) => s.size).map(([fid, s]) => [fid, [...s][0]])),
+  }));
+}
+
 async function loadRepoMeta(repo) {
+  ghState.meta = null;
   ghState.labels.clear();
   ghState.assignees.clear();
-  $('ghLabels').replaceChildren(h('span', { class: 'muted-sm' }, 'Loading…'));
-  $('ghAssignees').replaceChildren(h('span', { class: 'muted-sm' }, 'Loading…'));
-  $('ghMilestoneField').hidden = true;
+  ghState.milestone.clear();
+  $('ghMilestone').hidden = true;
+  resetMetaPicks(true);
   if (!repo) return;
+  loadProjects(repo);
   try {
     const meta = await ghJson(`/api/github/meta?repo=${encodeURIComponent(repo)}`);
+    if (!ghState.repo.has(repo)) return; // another repository was picked meanwhile
     ghState.meta = meta;
     // Pre-select the label that matches the report type.
     const kind = rec.report?.kind || rec.meta?.kind || 'bug';
     const wanted = kind === 'suggestion' ? /enhancement|suggestion|feature/i : /^bug$/i;
     const match = meta.labels.find((l) => wanted.test(l.name));
     if (match) ghState.labels.add(match.name);
-    chipsFor($('ghLabels'), meta.labels, ghState.labels, {
-      key: (l) => l.name,
-      title: (l) => l.description || l.name,
-      content: (l) => [h('span', { class: 'dot', style: `--c: #${l.color}` }), l.name],
-    });
-    chipsFor($('ghAssignees'), meta.assignees, ghState.assignees, {
-      key: (a) => a.login,
-      content: (a) => [h('img', { src: a.avatar, alt: '' }), a.login],
-    });
-    $('ghMilestoneField').hidden = !meta.milestones.length;
-    $('ghMilestone').replaceChildren(h('option', { value: '' }, 'No milestone'), ...meta.milestones.map((m) => h('option', { value: String(m.number) }, m.title)));
+    $('ghMilestone').hidden = !meta.milestones.length;
+    resetMetaPicks(false);
   } catch (err) {
     ghError(err.message);
   }
 }
 
-async function openGitHub() {
+let ghBodyEdited = false;
+let ghAiLabel = 'Claude';
+
+/** "# Title\n\nbody" -> title field + description field. */
+function fillGhFromMarkdown(md, fallbackTitle) {
+  const text = String(md || '').trim();
+  const m = /^#\s+(.+)\n?/.exec(text);
+  $('ghTitle').value = m ? m[1].trim() : fallbackTitle || rec.meta?.title || '';
+  $('ghBody').value = withShotImage(m ? text.slice(m[0].length).trim() : text);
+}
+
+function setGhKind(kind) {
+  document.querySelectorAll('[data-ghkind]').forEach((b) => b.classList.toggle('on', b.dataset.ghkind === kind));
+}
+
+async function writeGhWithClaude() {
+  const btn = $('ghWrite');
+  const hint = $('ghAiHint');
+  if (!$('ghWhat').value.trim()) {
+    hint.className = 'ai-hint bad';
+    hint.textContent = 'Describe what happened first.';
+    return $('ghWhat').focus();
+  }
+  if (ghBodyEdited && !btn.classList.contains('armed')) {
+    btn.classList.add('armed');
+    btn.querySelector('span:last-child').textContent = 'Replace my edits?';
+    hint.className = 'ai-hint';
+    hint.textContent = '';
+    setTimeout(() => {
+      if (!btn.classList.contains('armed')) return;
+      btn.classList.remove('armed');
+      btn.querySelector('span:last-child').textContent = 'Write with Claude';
+    }, 4000);
+    return;
+  }
+  btn.classList.remove('armed');
+  const kind = document.querySelector('[data-ghkind].on')?.dataset.ghkind || 'bug';
+  btn.disabled = true;
+  btn.classList.add('busy');
+  $('ghCreate').disabled = true;
+  $('ghBody').classList.add('writing');
+  btn.querySelector('span:last-child').textContent = 'Writing…';
+  hint.className = 'ai-hint';
+  hint.textContent = 'About 10 seconds';
+  try {
+    const res = await fetch(`/api/recordings/${encodeURIComponent(id)}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: $('ghWhat').value, kind }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Server answered ${res.status}`);
+    // Keep the Report tab in step: same report, same description.
+    rec.report = body;
+    rec.meta = { ...rec.meta, description: $('ghWhat').value };
+    $('what').value = $('ghWhat').value;
+    reportDirty = false;
+    $('saveReport').hidden = true;
+    renderReport();
+    renderDetails();
+    fillGhFromMarkdown(body.markdown);
+    const link = shareLink();
+    if (link && !$('ghBody').value.includes(link)) $('ghBody').value += `\n\n**${isShot() ? 'Screenshot' : 'Recording'}:** ${link}`;
+    ghBodyEdited = false;
+    hint.textContent = `Written by ${ghAiLabel}`;
+    // Match the label to the report type when the repo has one.
+    if (ghState.meta) {
+      const wanted = kind === 'suggestion' ? /enhancement|suggestion|feature/i : /^bug$/i;
+      const other = kind === 'suggestion' ? /^bug$/i : /enhancement|suggestion|feature/i;
+      for (const l of ghState.meta.labels) if (other.test(l.name)) ghState.labels.delete(l.name);
+      const match = ghState.meta.labels.find((l) => wanted.test(l.name));
+      if (match) ghState.labels.add(match.name);
+      renderLabelsPick();
+    }
+  } catch (err) {
+    hint.className = 'ai-hint bad';
+    hint.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('busy');
+    $('ghCreate').disabled = false;
+    $('ghBody').classList.remove('writing');
+    btn.querySelector('span:last-child').textContent = rec.report?.model ? 'Rewrite with Claude' : 'Write with Claude';
+  }
+}
+
+function setGhDone(done) {
+  $('ghForm').hidden = done;
+  $('ghDone').hidden = !done;
+  document.querySelector('.gh-modal').classList.toggle('is-done', done);
+  $('cr').classList.toggle('is-done', done);
+}
+
+async function openGitHub({ inline = false } = {}) {
   if (driveMode || !rec) return;
   closeMenu();
   const back = $('gh');
-  back.hidden = false;
+  if (!inline) back.hidden = false;
   ghError('');
-  $('ghDone').hidden = true;
+  ghLastIssue = null;
+  setGhDone(false);
   $('ghFoot').hidden = false;
   $('ghCreate').disabled = false;
   const status = await ghJson('/api/github').catch(() => ({ configured: false }));
@@ -1274,60 +2100,208 @@ async function openGitHub() {
   $('ghFields').hidden = !status.configured;
   $('ghCreate').hidden = !status.configured;
   if (!status.configured) return;
+  ghState.repos = [];
+  ghState.repo.clear();
+  ghState.projects = [];
+  ghState.boards.clear();
+  $('ghBoards').replaceChildren();
+  $('ghProjects').hidden = true;
+  setPickVal($('ghRepo'), [placeholder('Loading repositories…')]);
+  resetMetaPicks(true);
   try {
     // Unsaved edits in the Report tab go into the issue too.
     const draft = await ghJson(`/api/recordings/${encodeURIComponent(id)}/github/draft`);
-    const fromTab = reportDirty ? $('report').value : null;
-    if (fromTab) {
-      const m = /^#\s+(.+)\n?/.exec(fromTab.trim());
-      $('ghTitle').value = m ? m[1].trim() : draft.title;
-      $('ghBody').value = m ? fromTab.trim().slice(m[0].length).trim() : fromTab;
-    } else {
+    // Unsaved Report tab edits first, then a saved report, else the template filled from the recording
+    // (preconditions, steps, attachments), so the issue is useful before anything is written.
+    if (reportDirty) fillGhFromMarkdown($('report').value, draft.title);
+    else if (draft.hasReport) {
       $('ghTitle').value = draft.title;
       $('ghBody').value = draft.body;
-    }
-    $('ghTip').hidden = draft.hasReport || Boolean(fromTab);
+    } else fillGhFromMarkdown(buildReport(), draft.title);
+    ghBodyEdited = false;
+    $('ghWhat').value = $('what').value || rec.meta?.description || '';
+    setGhKind(rec.report?.kind || rec.meta?.kind || 'bug');
+    $('ghAiHint').textContent = '';
+    $('ghAiHint').className = 'ai-hint';
+    $('ghWrite').classList.remove('armed');
+    $('ghWrite').disabled = false;
+    $('ghWrite').querySelector('span:last-child').textContent = rec.report?.model ? 'Rewrite with Claude' : 'Write with Claude';
+    fetch('/api/ai')
+      .then((r) => r.json())
+      .then((s) => {
+        ghAiLabel = s?.label ? s.label.split(' · ')[0] : 'Claude';
+        if (s && s.available === false) {
+          $('ghWrite').disabled = true;
+          $('ghAiHint').className = 'ai-hint bad';
+          $('ghAiHint').textContent = 'Set up AI reports in BugSnap Settings';
+        }
+      })
+      .catch(() => {});
+    if (!inline) setTimeout(() => $('ghWhat').focus(), 30);
     const repos = await ghJson('/api/github/repos');
+    ghState.repos = repos;
     if (!repos.length) {
+      renderRepoPick();
       ghError('The token cannot see any repository with issues. Give it access in GitHub settings.');
       $('ghCreate').disabled = true;
       return;
     }
     const selected = repos.some((r) => r.fullName === draft.repo) ? draft.repo : repos[0].fullName;
-    $('ghRepo').replaceChildren(...repos.map((r) => h('option', { value: r.fullName, selected: r.fullName === selected ? '' : undefined }, `${r.fullName}${r.private ? ' (private)' : ''}`)));
-    $('ghRepo').value = selected;
+    ghState.repo.add(selected);
+    renderRepoPick();
     loadRepoMeta(selected);
-    setTimeout(() => $('ghTitle').focus(), 30);
   } catch (err) {
     ghError(err.message);
   }
 }
 
 function closeGitHub() {
+  if (crOpen()) return closeCreate();
   const back = $('gh');
   if (back.hidden || back.classList.contains('closing')) return;
+  closePop();
   back.classList.add('closing');
   setTimeout(() => {
     back.hidden = true;
     back.classList.remove('closing');
+    tellParent({ type: 'close', description: $('ghWhat').value, kind: document.querySelector('[data-ghkind].on')?.dataset.ghkind, issue: ghLastIssue });
   }, 180);
 }
+
+let ghLastIssue = null;
 
 if (!driveMode) {
   $('ghOpen').addEventListener('click', openGitHub);
   $('ghClose').addEventListener('click', closeGitHub);
   $('ghCancel').addEventListener('click', closeGitHub);
+  $('ghDoneClose').addEventListener('click', closeGitHub);
   $('gh').addEventListener('click', (e) => e.target === $('gh') && closeGitHub());
   document.addEventListener('keydown', (e) => e.key === 'Escape' && !$('gh').hidden && closeGitHub());
-  $('ghRepo').addEventListener('change', () => loadRepoMeta($('ghRepo').value));
-  $('ghToReport').addEventListener('click', () => {
-    closeGitHub();
-    document.querySelector('[data-tab="report"]').click();
-    $('what').focus();
+  $('ghForm').addEventListener('scroll', closePop, true);
+  // A line above the pinned footer while there is more form below it.
+  const footLine = () => { const f = $('ghForm'); f.classList.toggle('scrolled-up', f.scrollHeight - f.scrollTop - f.clientHeight > 2); };
+  $('ghForm').addEventListener('scroll', footLine);
+  new ResizeObserver(footLine).observe($('ghFields'));
+
+  $('ghRepo').addEventListener('click', () => {
+    if (!ghState.repos.length) return;
+    showPicker($('ghRepo'), {
+      title: 'Repository',
+      placeholder: 'Search repositories',
+      items: ghState.repos,
+      key: (r) => r.fullName,
+      name: (r) => r.fullName.split('/')[1],
+      sub: (r) => r.fullName.split('/')[0],
+      tail: (r) => (r.private ? icon('lock-simple', 'icon lock') : null),
+      selected: ghState.repo,
+      onChange: () => {
+        renderRepoPick();
+        loadRepoMeta([...ghState.repo][0]);
+      },
+    });
   });
-  $('ghForm').addEventListener('submit', async (e) => {
+  $('ghLabels').addEventListener('click', () => {
+    if (!ghState.meta) return;
+    showPicker($('ghLabels'), {
+      title: 'Labels',
+      placeholder: 'Search labels',
+      empty: 'No labels in this repository',
+      multi: true,
+      items: ghState.meta.labels,
+      key: (l) => l.name,
+      name: (l) => l.name,
+      sub: (l) => l.description,
+      lead: (l) => h('span', { class: 'pv-dot', style: `--c: #${l.color}` }),
+      selected: ghState.labels,
+      onChange: renderLabelsPick,
+    });
+  });
+  $('ghAssignees').addEventListener('click', () => {
+    if (!ghState.meta) return;
+    showPicker($('ghAssignees'), {
+      title: 'Assignees',
+      placeholder: 'Search people',
+      empty: 'Nobody can be assigned',
+      multi: true,
+      items: ghState.meta.assignees,
+      key: (a) => a.login,
+      name: (a) => a.login,
+      lead: (a) => h('img', { src: a.avatar, alt: '' }),
+      selected: ghState.assignees,
+      onChange: renderAssigneesPick,
+    });
+  });
+  $('ghMilestone').addEventListener('click', () => {
+    if (!ghState.meta) return;
+    showPicker($('ghMilestone'), {
+      title: 'Milestone',
+      placeholder: 'Search milestones',
+      toggle: true,
+      items: ghState.meta.milestones,
+      key: (m) => String(m.number),
+      name: (m) => m.title,
+      selected: ghState.milestone,
+      onChange: renderMilestonePick,
+    });
+  });
+
+  $('ghProjects').addEventListener('click', () => {
+    showPicker($('ghProjects'), {
+      title: 'Project boards',
+      placeholder: 'Search boards',
+      empty: ghState.projectsError || 'No project boards',
+      multi: true,
+      items: ghState.projects,
+      key: (p) => p.id,
+      name: (p) => p.title,
+      sub: (p) => `${p.linked ? 'Linked to this repo' : 'Owner board'} · ${p.fields.length ? p.fields.map((f) => f.name).join(', ') : 'no dropdown fields'}`,
+      lead: () => icon('squares-four'),
+      selected: ghState.boards,
+      onChange: () => {
+        renderProjectsPick();
+        renderBoards();
+        rememberBoards();
+      },
+      // Boards sit under the description: bring them into view once the list closes.
+      onClose: () => $('ghBoards').lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+    });
+  });
+  document.querySelectorAll('[data-ghkind]').forEach((b) => b.addEventListener('click', () => setGhKind(b.dataset.ghkind)));
+  $('ghWrite').addEventListener('click', writeGhWithClaude);
+  $('ghWhat').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      writeGhWithClaude();
+    }
+  });
+  $('ghBody').addEventListener('input', () => (ghBodyEdited = true));
+  $('ghTitle').addEventListener('input', () => (ghBodyEdited = true));
+  $('ghDoneCopy').addEventListener('click', async () => {
+    const btn = $('ghDoneCopy');
+    const ok = await copyText($('ghDoneLink').href);
+    btn.classList.toggle('copied', ok);
+    setIcon(btn, ok ? 'check' : 'warning-circle');
+    btn.querySelector('span:last-child').textContent = ok ? 'Copied' : "Couldn't copy";
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      setIcon(btn, 'copy');
+      btn.querySelector('span:last-child').textContent = 'Copy link';
+    }, 1600);
+  });
+  $('ghForm').addEventListener('submit', (e) => {
     e.preventDefault();
+    submitGitHub();
+  });
+}
+
+/** What is missing before an issue can be created, or ''. */
+const ghMissing = () => (![...ghState.repo][0] ? 'Choose a repository.' : !$('ghTitle').value.trim() ? 'Add a title.' : '');
+
+async function submitGitHub() {
+  {
     ghError('');
+    const repo = [...ghState.repo][0];
+    if (ghMissing()) return ghError(ghMissing());
     const btn = $('ghCreate');
     btn.disabled = true;
     btn.querySelector('span:last-child').textContent = 'Creating…';
@@ -1336,29 +2310,38 @@ if (!driveMode) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          repo: $('ghRepo').value,
+          repo,
           title: $('ghTitle').value,
           body: $('ghBody').value,
           labels: [...ghState.labels],
           assignees: [...ghState.assignees],
-          milestone: $('ghMilestone').value || null,
+          milestone: [...ghState.milestone][0] || null,
+          projects: boardsPayload(),
         }),
       });
       rec.github = [issue, ...(rec.github || [])];
+      ghLastIssue = { number: issue.number, url: issue.url };
       renderDetails();
       renderInfo();
-      $('ghFields').hidden = true;
-      $('ghFoot').hidden = true;
-      $('ghDone').hidden = false;
-      $('ghDoneText').textContent = `Issue #${issue.number} created in ${issue.repo}`;
+      $('ghDoneText').textContent = `Issue #${issue.number} created`;
+      const failed = (issue.boards || []).filter((b) => !b.ok);
+      const added = (issue.boards || []).filter((b) => b.ok).map((b) => ghState.projects.find((p) => p.id === b.projectId)?.title).filter(Boolean);
+      $('ghDoneSub').textContent = added.length ? `${issue.repo} · on ${added.join(', ')}` : issue.repo;
+      $('ghDoneWarn').hidden = !failed.length;
+      $('ghDoneWarn').textContent = failed.length ? `Couldn't add it to ${failed.map((b) => ghState.projects.find((p) => p.id === b.projectId)?.title || 'a board').join(', ')}: ${failed[0].error}` : '';
       $('ghDoneLink').href = issue.url;
+      setGhDone(true);
+      tellParent({ type: 'created', kind: 'github', issue: ghLastIssue });
+      setTimeout(() => $('ghDoneLink').focus(), 30);
+      return true;
     } catch (err) {
       ghError(err.message);
-      btn.disabled = false;
+      return false;
     } finally {
+      btn.disabled = false;
       btn.querySelector('span:last-child').textContent = 'Create issue';
     }
-  });
+  }
 }
 
 // Back from the editor: pick up the new image, title and description.
@@ -1374,24 +2357,576 @@ if (!driveMode) {
 
 // ---------------------------------------------------------------- annotate (screenshots, local server)
 // The editor lives in the extension; its content script on this page opens it.
-if (!driveMode) {
-  $('annotate').addEventListener('click', () => {
+
+/** Ask the extension to open a screenshot in the editor. Resolves false if it did not answer. */
+function openInEditor(shotId) {
+  return new Promise((resolve) => {
     let answered = false;
     const onAck = (e) => {
       if (e.source === window && e.data?.source === 'bugsnap-ext' && e.data.type === 'annotate-ack') answered = true;
     };
     window.addEventListener('message', onAck);
-    window.postMessage({ source: 'bugsnap-page', type: 'annotate', id }, location.origin);
+    window.postMessage({ source: 'bugsnap-page', type: 'annotate', id: shotId }, location.origin);
     setTimeout(() => {
       window.removeEventListener('message', onAck);
-      if (!answered) flash($('annotate'), 'warning-circle', 'Needs the extension');
+      resolve(answered);
     }, 900);
+  });
+}
+
+if (!driveMode) {
+  $('annotate').addEventListener('click', async () => {
+    if (!(await openInEditor(id))) flash($('annotate'), 'warning-circle', 'Needs the extension');
+  });
+}
+
+// ---------------------------------------------------------------- capture a frame (recordings, local server)
+// The frame at the current moment becomes a screenshot (in All recordings, editable, shareable),
+// linked to this recording and moment. Its image goes inline into this recording's GitHub issues.
+
+function frameToast(state, text, actions = []) {
+  let el = $('frameToast');
+  if (!el) {
+    el = h('div', { class: 'frame-toast', id: 'frameToast', role: 'status', 'aria-live': 'polite' });
+    document.body.append(el);
+  }
+  clearTimeout(frameToast.timer);
+  el.dataset.state = state;
+  el.replaceChildren(icon(state === 'busy' ? 'spinner-gap' : state === 'error' ? 'warning-circle' : 'check'), h('span', { class: 'ft-text' }, text), ...actions);
+  el.hidden = false;
+  el.classList.remove('out');
+  if (state !== 'busy') {
+    frameToast.timer = setTimeout(() => {
+      el.classList.add('out');
+      setTimeout(() => (el.hidden = true), 200);
+    }, state === 'error' ? 6000 : 9000);
+  }
+}
+
+async function captureFrame() {
+  const btn = $('frameBtn');
+  if (driveMode || isShot() || fallbackActive || !btn || btn.disabled) return;
+  if (!video.videoWidth) return frameToast('error', 'The video is not ready yet.');
+  video.pause();
+  const at = video.currentTime;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return frameToast('error', "Couldn't read this frame.");
+  btn.disabled = true;
+  frameToast('busy', `Saving frame at ${fmt(at)}…`);
+  try {
+    // The page that was open at that moment, for the screenshot's details.
+    const nav = lists.steps.filter((e) => e.type === 'navigation' && e.url && offsetOf(e) <= at + 0.05).at(-1);
+    const created = await ghJson(`/api/recordings/${encodeURIComponent(id)}/frames`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ at, pageUrl: nav?.url || rec.meta?.startUrl }),
+    });
+    for (const part of ['original', 'image']) {
+      const res = await fetch(`/api/recordings/${encodeURIComponent(created.id)}/${part}`, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: blob });
+      if (!res.ok) throw new Error(`Couldn't save the frame (${res.status})`);
+    }
+    await ghJson(`/api/recordings/${encodeURIComponent(created.id)}/finalize-shot?now=1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: `${rec.meta?.title || 'Recording'} · ${fmt(at)}`, kind: rec.report?.kind || rec.meta?.kind || 'bug', width: canvas.width, height: canvas.height }),
+    });
+    rec.frames = [...(rec.frames || []), created.id];
+    rec.frameShots = [...(rec.frameShots || []), { id: created.id, at, viewerUrl: created.viewerUrl, fileId: null }].sort((a, b) => a.at - b.at);
+    renderInfo();
+    renderReport();
+    // The Drive copy (for inline images in issues) appears a moment later.
+    setTimeout(async () => {
+      const r = await fetchRecording().catch(() => null);
+      if (r?.frameShots) {
+        rec.frameShots = r.frameShots;
+        renderReport();
+      }
+    }, 6000);
+    const annotate = h('button', { type: 'button', class: 'ft-btn' }, 'Annotate');
+    annotate.addEventListener('click', async () => {
+      if (!(await openInEditor(created.id))) window.open(created.viewerUrl, '_blank', 'noopener');
+    });
+    const view = h('a', { class: 'ft-btn', href: created.viewerUrl, target: '_blank', rel: 'noopener' }, 'Open');
+    frameToast('done', `Frame at ${fmt(at)} saved`, [annotate, view]);
+  } catch (err) {
+    frameToast('error', err.message || "Couldn't save the frame.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+if (!driveMode) $('frameBtn').addEventListener('click', captureFrame);
+
+// ---------------------------------------------------------------- create dialog (local server)
+// Right after a capture: the video (with a trim bar) or screenshot on the left, and on the right
+// "Create a [Link to share | GitHub issue]". The GitHub issue form is the same one as above,
+// moved into the right side.
+
+const CR_KINDS = [
+  { key: 'link', name: 'Link to share', icon: 'link-simple' },
+  { key: 'github', name: 'GitHub issue', icon: 'github-logo' },
+];
+const CR_KIND_KEY = 'bugsnap.create.kind';
+const cr = { open: false, kind: new Set(), ghReady: false, busy: false, start: 0, end: 0, dur: 0, raf: 0, saved: { title: '', description: '' } };
+const crOpen = () => cr.open;
+const crKind = () => [...cr.kind][0] || 'link';
+const crVideo = $('crVideo');
+const isRecording = () => rec && !isShot();
+
+function crError(message) {
+  $('crAlert').hidden = !message;
+  $('crAlertText').textContent = message || '';
+}
+
+function openCreate() {
+  if (driveMode || !rec) return;
+  cr.open = true;
+  let kind = 'link';
+  try {
+    kind = localStorage.getItem(CR_KIND_KEY) || kind;
+  } catch {
+    /* storage blocked */
+  }
+  cr.kind = new Set([CR_KINDS.some((k) => k.key === kind) ? kind : 'link']);
+  $('crTitle').value = rec.meta?.title || '';
+  $('crDesc').value = rec.meta?.description || '';
+  cr.saved = { title: $('crTitle').value, description: $('crDesc').value };
+  crError('');
+  $('cr').hidden = false;
+  crMedia();
+  crSetKind();
+  crNote();
+  // The link is reserved on Drive in the background; ask for it now so Create is quick.
+  ensurePublicLink().then(crNote);
+  crFolderRender();
+  crLoadFolders();
+  if (crKind() === 'link' && !embedded) setTimeout(() => $('crTitle').focus(), 30);
+}
+
+function closeCreate() {
+  if (!cr.open) return;
+  closePop();
+  crVideo.pause();
+  const saving = crSaveDetails().catch(() => {});
+  // The extension removes this frame on close: let the save finish first.
+  if (embedded) return void saving.finally(() => tellParent({ type: 'close', issue: ghLastIssue }));
+  cr.open = false;
+  const back = $('cr');
+  back.classList.add('closing');
+  setTimeout(() => {
+    back.hidden = true;
+    back.classList.remove('closing');
+  }, 180);
+  if (params.has('create')) {
+    params.delete('create');
+    history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : '') + location.hash);
+  }
+}
+
+function crSetKind() {
+  const k = CR_KINDS.find((x) => x.key === crKind());
+  setPickVal($('crKind'), [icon(k.icon), h('span', { class: 'txt' }, k.name)], true);
+  const gh = k.key === 'github';
+  $('crLinkFields').hidden = gh;
+  $('crGhSlot').hidden = !gh;
+  crError('');
+  if (gh && !cr.ghReady) {
+    // Move the issue form (and its success card) into the dialog, then load repos and labels.
+    cr.ghReady = true;
+    $('crGhSlot').append($('ghForm'), $('ghDone'));
+    openGitHub({ inline: true });
+  }
+  crNote();
+}
+
+// ---- folder (project) for this capture; new captures go to the folder chosen last
+
+const crFolders = { list: [], sel: new Set() };
+
+function crFolderRender() {
+  const f = crFolders.list.find((x) => x.id === rec.folderId);
+  setPickVal($('crFolder'), [icon('folder-open'), h('span', { class: 'txt' }, f ? f.name : 'No folder')], Boolean(f));
+  $('crFolder').dataset.tip = f ? `In the "${f.name}" folder` : 'Put it in a project folder';
+}
+
+async function crLoadFolders() {
+  try {
+    crFolders.list = (await ghJson('/api/folders')).folders || [];
+  } catch {
+    crFolders.list = [];
+  }
+  crFolderRender();
+}
+
+async function crMoveToFolder(folderId) {
+  try {
+    await ghJson('/api/folders/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id], folderId, remember: true }) });
+    rec.folderId = folderId;
+  } catch (err) {
+    crError(err.message);
+  }
+  crFolderRender();
+}
+
+function crPickFolder() {
+  crFolders.sel = new Set([rec.folderId || '']);
+  showPicker($('crFolder'), {
+    title: 'Folder',
+    placeholder: 'Find or create a folder',
+    items: [{ id: '', name: 'No folder' }, ...crFolders.list],
+    key: (f) => f.id,
+    name: (f) => f.name,
+    lead: (f) => (f.id ? h('span', { class: 'pv-dot', style: `--c: ${f.color}` }) : icon('x')),
+    sub: (f) => (f.id ? `${f.count || 0} item${f.count === 1 ? '' : 's'}` : null),
+    selected: crFolders.sel,
+    createLabel: 'New folder',
+    create: async (name) => {
+      try {
+        const f = await ghJson('/api/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+        crFolders.list.push(f);
+        await crMoveToFolder(f.id);
+      } catch (err) {
+        crError(err.message);
+      }
+    },
+    onChange: () => crMoveToFolder([...crFolders.sel][0] || null),
+  });
+}
+
+function crNote() {
+  if (!cr.open) return;
+  const what = isShot() ? 'view it' : 'watch it';
+  $('crLinkNote').textContent = !rec.driveConnected && !rec.shareUrl
+    ? 'Google Drive is not connected, so only you can open the link. Connect it in BugSnap Settings.'
+    : `Create copies the link and opens it in a new tab. Anyone with the link can ${what}.`;
+}
+
+// ---- left side: the video with a trim bar, or the screenshot
+
+function crMedia() {
+  if (!cr.open) return;
+  const shot = isShot();
+  const ready = rec.status === 'ready';
+  $('crImage').hidden = !shot;
+  crVideo.hidden = shot || !ready;
+  $('crState').hidden = shot || ready;
+  $('crTrim').hidden = shot || !ready;
+  $('crMedia').classList.toggle('is-shot', shot);
+  if (shot) {
+    const src = `/api/recordings/${encodeURIComponent(id)}/image?v=${encodeURIComponent(rec.updatedAt || '')}`;
+    if ($('crImage').getAttribute('src') !== src) $('crImage').src = src;
+    return;
+  }
+  if (!ready) {
+    $('crStateText').textContent = rec.status === 'recording' ? 'Still recording…' : 'Preparing video…';
+    return;
+  }
+  const src = `/api/recordings/${encodeURIComponent(id)}/video?v=${encodeURIComponent(rec.videoRev ? `t${rec.videoRev}` : 'p')}`;
+  if (crVideo.getAttribute('src') !== src) {
+    crVideo.src = src;
+    if (rec.hasPoster) crVideo.poster = `/api/recordings/${encodeURIComponent(id)}/poster?v=${encodeURIComponent(rec.videoRev || 0)}`;
+    cr.dur = (rec.durationMs || 0) / 1000;
+    cr.start = 0;
+    cr.end = cr.dur;
+  }
+  crTrimRender();
+}
+
+const crClamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const crTrimmed = () => cr.dur > 0 && (cr.start > 0.05 || cr.end < cr.dur - 0.05);
+
+function crSecs(sec) {
+  const v = sec < 10 ? Math.round(sec * 10) / 10 : Math.round(sec);
+  return `${v} second${v === 1 ? '' : 's'}`;
+}
+
+function crTrimRender() {
+  const d = cr.dur || 1;
+  const a = (cr.start / d) * 100;
+  const b = (cr.end / d) * 100;
+  $('crSel').style.left = `${a}%`;
+  $('crSel').style.right = `${100 - b}%`;
+  $('crIn').style.left = `${a}%`;
+  $('crOut').style.left = `${b}%`;
+  $('crHead').style.left = `${(crClamp(crVideo.currentTime || 0, 0, d) / d) * 100}%`;
+  $('crLength').textContent = crSecs(cr.end - cr.start);
+  const trimmed = crTrimmed();
+  $('crRange').hidden = !trimmed;
+  $('crRange').textContent = trimmed ? `${fmt(cr.start)} – ${fmt(cr.end)} of ${fmt(cr.dur)}` : '';
+  $('crReset').hidden = !trimmed;
+  $('crTrack').classList.toggle('trimmed', trimmed);
+  crNote();
+}
+
+function crPlayIcon() {
+  setIcon($('crPlay'), crVideo.paused ? 'play-fill' : 'pause-fill');
+  $('crPlay').dataset.tip = crVideo.paused ? 'Play' : 'Pause';
+}
+
+function crTogglePlay() {
+  if (crVideo.hidden) return;
+  if (!crVideo.paused) return crVideo.pause();
+  // Play the kept part only.
+  if (crVideo.currentTime < cr.start || crVideo.currentTime >= cr.end - 0.05) crVideo.currentTime = cr.start;
+  crVideo.play().catch(() => {});
+}
+
+function crTick() {
+  cancelAnimationFrame(cr.raf);
+  if (crVideo.paused) return;
+  if (crVideo.currentTime >= cr.end) {
+    crVideo.pause();
+    crVideo.currentTime = cr.end;
+  }
+  crTrimRender();
+  cr.raf = requestAnimationFrame(crTick);
+}
+
+const crSecAt = (e) => {
+  const r = $('crTrack').getBoundingClientRect();
+  return crClamp((e.clientX - r.left) / r.width, 0, 1) * cr.dur;
+};
+
+function crDragHandle(handle, which) {
+  handle.addEventListener('pointerdown', (e) => {
+    if (cr.busy) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('drag');
+    crVideo.pause();
+    const move = (ev) => {
+      const sec = crSecAt(ev);
+      if (which === 'in') cr.start = crClamp(sec, 0, cr.end - 0.5);
+      else cr.end = crClamp(sec, cr.start + 0.5, cr.dur);
+      // Show the frame at the cut.
+      crVideo.currentTime = which === 'in' ? cr.start : cr.end;
+      crTrimRender();
+    };
+    const up = () => {
+      handle.classList.remove('drag');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  });
+  handle.addEventListener('keydown', (e) => {
+    if (cr.busy || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    const step = (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowLeft' ? -1 : 1);
+    if (which === 'in') cr.start = crClamp(cr.start + step, 0, cr.end - 0.5);
+    else cr.end = crClamp(cr.end + step, cr.start + 0.5, cr.dur);
+    crVideo.currentTime = which === 'in' ? cr.start : cr.end;
+    crTrimRender();
+  });
+}
+
+/** Save the title and description typed on the Link side (also on close). */
+async function crSaveDetails() {
+  const title = $('crTitle').value.trim();
+  const description = $('crDesc').value;
+  if (title === cr.saved.title.trim() && description === cr.saved.description) return;
+  const res = await fetch(`/api/recordings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, description }),
+  });
+  if (!res.ok) throw new Error('Could not save the title and description.');
+  const saved = await res.json();
+  cr.saved = { title: saved.title, description: saved.description };
+  rec.meta = { ...rec.meta, title: saved.title, description: saved.description };
+  renderDetails();
+  tellParent({ type: 'details', title: saved.title, description: saved.description });
+}
+
+/** The screenshot editor next to this panel saves the latest marks before anything is created. */
+function crFlushParent() {
+  if (embedMode !== 'panel') return Promise.resolve();
+  return new Promise((resolve) => {
+    let timer = 0;
+    const onMsg = (e) => e.source === window.parent && e.data?.source === 'bugsnap-host' && e.data.type === 'flushed' && done();
+    const done = () => {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMsg);
+      resolve();
+    };
+    timer = setTimeout(done, 10000);
+    window.addEventListener('message', onMsg);
+    tellParent({ type: 'flush' });
+  });
+}
+
+/** Cut the video to the kept part (if the bar was moved), then reload what the cut changed. */
+async function crApplyTrim() {
+  if (!isRecording() || !crTrimmed()) return;
+  crBusy('Trimming…');
+  crVideo.pause();
+  const res = await fetch(`/api/recordings/${encodeURIComponent(id)}/trim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start: cr.start, end: cr.end }),
+  }).catch(() => null);
+  const body = res ? await res.json().catch(() => ({})) : {};
+  if (!res || !res.ok) throw new Error(body.error || "Couldn't trim the video. Is the server running?");
+  const fresh = await fetchRecording();
+  if (fresh) rec = fresh;
+  render();
+  crMedia();
+  // The issue text came from the untrimmed steps: rebuild it unless it was written or edited.
+  if (cr.ghReady && !ghBodyEdited && !reportDirty && !rec.report?.markdown) {
+    const title = $('ghTitle').value;
+    fillGhFromMarkdown(buildReport(), title);
+    $('ghTitle').value = title;
+  }
+}
+
+function crBusy(text) {
+  cr.busy = Boolean(text);
+  const btn = $('crCreate');
+  btn.disabled = cr.busy;
+  btn.classList.toggle('busy', cr.busy);
+  btn.querySelector('span:last-child').textContent = text || 'Create';
+  $('crTrim').classList.toggle('locked', cr.busy);
+}
+
+/** Open a link in a new tab: the extension does it when we are inside it (no popup blocker). */
+function crOpenTab(url) {
+  if (embedded) tellParent({ type: 'open', url });
+  else window.open(url, '_blank', 'noopener');
+}
+
+async function crCreate() {
+  if (cr.busy) return;
+  crError('');
+  const kind = crKind();
+  if (kind === 'github') {
+    ghError('');
+    const missing = ghMissing();
+    if (missing) return ghError(missing);
+  }
+  try {
+    crBusy(kind === 'github' ? 'Creating…' : 'Creating link…');
+    await crFlushParent();
+    await crApplyTrim();
+    if (kind === 'github') {
+      crBusy('Creating issue…');
+      await submitGitHub();
+      return;
+    }
+    crBusy('Creating link…');
+    await crSaveDetails();
+    await ensurePublicLink();
+    const url = shareLink();
+    await copyText(url);
+    crOpenTab(url);
+    tellParent({ type: 'created', kind: 'link', url });
+    closeCreate();
+  } catch (err) {
+    crError(err.message);
+  } finally {
+    crBusy('');
+  }
+}
+
+function crKeys(e) {
+  if (e.key === 'Escape') {
+    if (openPop) return;
+    e.preventDefault();
+    return closeCreate();
+  }
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.key === ' ' || e.key === 'k') {
+    e.preventDefault();
+    crTogglePlay();
+  }
+}
+
+if (!driveMode) {
+  $('crClose').addEventListener('click', closeCreate);
+  $('crClose2').addEventListener('click', closeCreate);
+  $('crCreate').addEventListener('click', crCreate);
+  $('crFolder').addEventListener('click', crPickFolder);
+  $('crKind').addEventListener('click', () => {
+    showPicker($('crKind'), {
+      title: 'Create a',
+      noSearch: true,
+      items: CR_KINDS,
+      key: (k) => k.key,
+      name: (k) => k.name,
+      lead: (k) => icon(k.icon),
+      selected: cr.kind,
+      onChange: () => {
+        try {
+          localStorage.setItem(CR_KIND_KEY, crKind());
+        } catch {
+          /* storage blocked */
+        }
+        crSetKind();
+      },
+    });
+  });
+  $('crBody').addEventListener('scroll', closePop, true);
+  crDragHandle($('crIn'), 'in');
+  crDragHandle($('crOut'), 'out');
+  $('crTrack').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.cr-handle') || !cr.dur || cr.busy) return;
+    crVideo.currentTime = crClamp(crSecAt(e), cr.start, cr.end);
+    crTrimRender();
+  });
+  $('crReset').addEventListener('click', () => {
+    cr.start = 0;
+    cr.end = cr.dur;
+    crTrimRender();
+  });
+  $('crPlay').addEventListener('click', crTogglePlay);
+  crVideo.addEventListener('click', crTogglePlay);
+  crVideo.addEventListener('play', () => {
+    crPlayIcon();
+    crTick();
+  });
+  crVideo.addEventListener('pause', () => {
+    crPlayIcon();
+    crTrimRender();
+  });
+  crVideo.addEventListener('seeked', crTrimRender);
+  crVideo.addEventListener('loadedmetadata', () => {
+    // Older recordings may lack a duration in the record: use the file's.
+    if (!cr.dur && Number.isFinite(crVideo.duration)) {
+      cr.dur = crVideo.duration;
+      cr.end = cr.dur;
+    }
+    crTrimRender();
+  });
+  $('crTitle').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('crDesc').focus();
+    }
+  });
+  // From the editor next door: its latest title.
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.data?.source !== 'bugsnap-host') return;
+    if (e.data.type === 'title' && typeof e.data.title === 'string') {
+      rec.meta = { ...rec.meta, title: e.data.title };
+      if ($('crTitle').value === cr.saved.title) $('crTitle').value = e.data.title;
+      cr.saved.title = e.data.title;
+    }
   });
 }
 
 // ---------------------------------------------------------------- keyboard
 
 document.addEventListener('keydown', (e) => {
+  if (crOpen()) return crKeys(e);
   if (!$('review').hidden || ($('gh') && !$('gh').hidden)) return;
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
   if (e.target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return;
@@ -1403,6 +2938,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight' || e.key === 'l') seek(video.currentTime + 5);
   else if (e.key === 'f') toggleFull();
   else if (e.key === 'm') video.muted = !video.muted;
+  else if (e.key === 's' && !driveMode) captureFrame();
 });
 
 load();

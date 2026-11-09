@@ -40,6 +40,22 @@ export async function makeImagePoster({ ffmpegPath, imagePath, posterPath }) {
   }
 }
 
+/**
+ * Cut [start, end] seconds out of a recording. Browser recordings have very few keyframes, so a
+ * stream copy would start at the wrong moment: re-encode (fast VP9 settings) for an exact cut.
+ */
+export async function trimVideo({ ffmpegPath, inPath, outPath, posterPath, start, end }) {
+  if (!(await hasFfmpeg(ffmpegPath))) throw Object.assign(new Error('Trimming needs ffmpeg on the server.'), { status: 501 });
+  await run(ffmpegPath, [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', inPath, '-ss', start.toFixed(3), '-to', end.toFixed(3),
+    '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-crf', '32', '-b:v', '0',
+    '-c:a', 'libopus', '-b:a', '96k',
+    '-cues_to_front', '1', outPath,
+  ]);
+  await run(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '0.3', '-i', outPath, '-frames:v', '1', '-vf', 'scale=640:-2', posterPath]).catch(() => {});
+}
+
 export async function processVideo({ ffmpegPath, rawPath, outPath, posterPath }) {
   if (!(await hasFfmpeg(ffmpegPath))) {
     await fs.copyFile(rawPath, outPath);

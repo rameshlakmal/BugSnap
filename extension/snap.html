@@ -14,8 +14,10 @@
       <strong>Screenshot</strong>
       <span class="crumb" id="pageName"></span>
       <span class="spacer"></span>
+      <div class="save-state" id="saveState" data-state="saving" role="status" aria-live="polite"><span class="dot"></span><span id="saveText">Saving…</span></div>
       <button class="btn ghost sm copy-btn" id="copyImage" data-tip="Copy the image to paste anywhere" data-kbd="Ctrl+C"><span class="swap"><span class="icon" data-icon="copy"></span><span class="icon ok-icon" data-icon="check"></span></span><span class="label">Copy image</span></button>
       <a class="btn ghost icon-only sm" id="download" data-tip="Download PNG" download="screenshot.png"><span class="icon" data-icon="download-simple"></span></a>
+      <button class="btn ghost icon-only sm" id="closeSnap" data-tip="Close (saved automatically)" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
     </header>
 
     <main class="layout">
@@ -64,31 +66,38 @@
       </section>
 
       <aside class="side">
-        <form id="form" class="form">
-          <div class="save-state" id="saveState" data-state="saving" role="status" aria-live="polite"><span class="dot"></span><span id="saveText">Saving…</span></div>
+        <div class="alert" id="alert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="alertText"></span><button type="button" class="btn sm" id="retry" hidden>Retry</button></div>
+        <!-- "Create a [Link to share | GitHub issue]", from the BugSnap server (the player's panel) -->
+        <div class="panel-wait" id="panelWait"><span class="icon" data-icon="spinner-gap"></span><span>Saving the screenshot…</span></div>
+        <iframe class="panel" id="panel" title="Share or report" allow="clipboard-write; clipboard-read" hidden></iframe>
+        <!-- Older side form, kept hidden: its fields still feed the first save. -->
+        <form id="form" class="form" hidden>
           <div class="field"><label for="title">Title</label><input id="title" type="text" maxlength="200" autocomplete="off" /></div>
-          <div class="segmented" id="kind" role="group" aria-label="Type">
+          <!-- Description and type are filled in the GitHub issue window; kept here (hidden) so they save with the screenshot. -->
+          <div class="segmented" id="kind" role="group" aria-label="Type" hidden>
             <button type="button" data-kind="bug" class="on" data-tip="Something is broken">Bug</button>
             <button type="button" data-kind="suggestion" data-tip="Something could be better">Suggestion</button>
           </div>
-          <div class="field grow"><label for="desc">What's wrong?</label><textarea id="desc" maxlength="5000" placeholder="e.g. The delete button in this popup should be red."></textarea></div>
+          <div class="field grow" hidden><label for="desc">What's wrong?</label><textarea id="desc" maxlength="5000" placeholder="e.g. The delete button in this popup should be red. Any language is fine."></textarea></div>
+          <button type="button" class="btn primary gh-issue" id="ghIssue" disabled data-tip="Describe the bug, write it with AI and file it on GitHub"><span class="icon" data-icon="github-logo"></span><span>Create GitHub issue</span></button>
           <dl class="kv" id="meta"></dl>
-          <div class="alert" id="alert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="alertText"></span><button type="button" class="btn sm" id="retry" hidden>Retry</button></div>
           <div class="share">
             <label for="link">Share link</label>
             <div class="linkrow">
               <input id="link" type="text" readonly placeholder="Getting your link…" />
-              <button type="button" class="btn primary copy-link" id="copyLink" disabled><span class="icon" data-icon="link-simple"></span><span>Copy link</span></button>
+              <button type="button" class="btn copy-link" id="copyLink" disabled><span class="icon" data-icon="link-simple"></span><span>Copy link</span></button>
             </div>
             <span class="help" id="linkNote">Saved automatically, even if you close this tab.</span>
           </div>
           <div class="row2">
-            <button type="button" class="btn" id="open" disabled data-tip="Open in the player to write a bug report with AI or send it to GitHub"><span class="icon" data-icon="arrow-square-out"></span><span>Open</span></button>
+            <button type="button" class="btn" id="open" disabled data-tip="Open in the player"><span class="icon" data-icon="arrow-square-out"></span><span>Open</span></button>
             <button type="button" class="btn ghost" id="closeTab">Done</button>
           </div>
         </form>
       </aside>
     </main>
+
+    <div class="gh-layer" id="ghLayer" hidden><span class="gh-layer-spin"><span class="icon" data-icon="spinner-gap"></span></span></div>
 
     <input class="text-input" id="textInput" type="text" hidden />
     <div class="toast" id="toast" role="status" aria-live="polite"><span class="icon" data-icon="check"></span><span id="toastText">Image copied</span></div>

@@ -52,7 +52,8 @@ async function api(method, pathPart, body) {
     throw new Error(`Can't reach the server at ${server}.`);
   }
   const out = await res.json().catch(() => ({}));
-  if (res.status === 403) throw new Error('These settings can only be changed on the computer running the server.');
+  if (res.status === 401) throw new Error('The server needs your access key. Add it under Server → Access key.');
+  if (res.status === 403) throw new Error(out.error === 'Sign in required' ? 'The server needs your access key. Add it under Server → Access key.' : 'These settings can only be changed on the computer running the server.');
   if (!res.ok) throw new Error(out.error || `Server answered ${res.status}`);
   return out;
 }
@@ -97,7 +98,15 @@ async function checkServer(announce = false) {
   chip.dataset.state = 'checking';
   $('serverChipText').textContent = 'Checking server…';
   try {
-    const res = await fetch(`${server}/api/recordings`, { cache: 'no-store' });
+    const res = await fetch(`${server}/api/recordings`, { cache: 'no-store', headers: prefs.uploadToken ? { 'X-Upload-Token': prefs.uploadToken } : {} });
+    if (res.status === 401) {
+      chip.dataset.state = 'offline';
+      $('serverChipText').textContent = 'Access key needed';
+      $('serverDetail').textContent = prefs.uploadToken ? `${server} did not accept this access key.` : `${server} needs your access key (starts with bsk_).`;
+      document.body.classList.add('offline');
+      if (announce) toast('Access key needed', false);
+      return;
+    }
     if (!res.ok && res.status !== 404) throw new Error();
     chip.dataset.state = 'online';
     $('serverChipText').textContent = 'Server connected';

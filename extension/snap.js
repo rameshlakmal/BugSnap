@@ -562,6 +562,8 @@ document.addEventListener('keydown', (e) => {
     removeSelected();
   } else if (e.key === 'Escape' && selected !== null) {
     select(null);
+  } else if (e.key === 'Escape' && embedded) {
+    closeSnap();
   } else if (e.key === '[') {
     stepSize(-1);
   } else if (e.key === ']') {
@@ -722,10 +724,8 @@ async function saveNow({ publishNow = false } = {}) {
     try {
       await call('PUT', `/api/recordings/${rid}/image`, await exportBlob(), { 'Content-Type': 'image/png' });
       await call('PUT', `/api/recordings/${rid}/annotations`, JSON.stringify({ shapes }), { 'Content-Type': 'application/json' });
+      // Title, description and type are edited in the panel on the right (saved by the server).
       await call('POST', `/api/recordings/${rid}/finalize-shot${publishNow ? '?now=1' : ''}`, JSON.stringify({
-        title: $('title').value.trim() || draft.meta.title || 'Screenshot',
-        description: $('desc').value,
-        kind: kindNow(),
         width: canvas.width,
         height: canvas.height,
       }), { 'Content-Type': 'application/json' });
@@ -784,6 +784,7 @@ async function fetchLink() {
   $('link').value = link.url;
   $('copyLink').disabled = false;
   $('open').disabled = false;
+  $('ghIssue').disabled = false;
   $('linkNote').textContent = link.isPublic
     ? 'Anyone with the link can view it. Saved automatically, even if you close this tab.'
     : `Only you can open this link. ${link.error || 'Connect Google Drive in Settings to share.'}`;
@@ -820,6 +821,130 @@ $('open').addEventListener('click', async () => {
   await saveNow({ publishNow: true });
   chrome.runtime.sendMessage({ type: 'open:url', url: `${viewerUrl}#report` });
 });
+// ---- Create GitHub issue without leaving the editor: the player's issue window (AI report,
+// labels, boards) is loaded from the BugSnap server in a transparent frame over this page.
+
+function closeGhLayer() {
+  const layer = $('ghLayer');
+  if (layer.hidden || layer.classList.contains('closing')) return;
+  layer.classList.add('closing');
+  setTimeout(() => {
+    layer.hidden = true;
+    layer.classList.remove('closing', 'ready');
+    layer.querySelector('iframe')?.remove();
+    $('ghIssue').focus();
+  }, 180);
+}
+
+$('ghIssue').addEventListener('click', async () => {
+  if (!viewerUrl) return;
+  const btn = $('ghIssue');
+  btn.disabled = true;
+  // The issue window reads the latest description, type and image from the server.
+  await saveNow({ publishNow: true });
+  btn.disabled = false;
+  const layer = $('ghLayer');
+  layer.querySelector('iframe')?.remove();
+  const url = new URL(viewerUrl);
+  url.searchParams.set('embed', 'github');
+  const frame = document.createElement('iframe');
+  frame.src = url.href;
+  frame.title = 'Create GitHub issue';
+  frame.allow = 'clipboard-write';
+  layer.classList.remove('ready', 'closing');
+  layer.hidden = false;
+  layer.append(frame);
+  // If the server does not answer, don't leave a spinner up forever.
+  clearTimeout(closeGhLayer.timer);
+  closeGhLayer.timer = setTimeout(() => {
+    if (layer.hidden || layer.classList.contains('ready')) return;
+    closeGhLayer();
+    showError("Couldn't open the GitHub window. Is the BugSnap server running?");
+  }, 15000);
+});
+
+// ---- Right side: "Create a [Link to share | GitHub issue]" from the BugSnap server (the player's
+// panel). It asks this editor to save the latest marks before it creates anything.
+
+const embedded = window.parent !== window || new URLSearchParams(location.search).has('embed');
+if (embedded) document.documentElement.classList.add('embed');
+
+function mountPanel() {
+  if (!viewerUrl || $('panel').src) return;
+  const url = new URL(viewerUrl);
+  url.searchParams.set('embed', 'panel');
+  $('panel').src = url.href;
+  clearTimeout(mountPanel.timer);
+  mountPanel.timer = setTimeout(() => {
+    if (!$('panel').hidden) return;
+    $('panelWait').hidden = true;
+    showError("Couldn't load the share options. Is the BugSnap server running?");
+  }, 15000);
+}
+
+/** Close the editor: remove the dialog from the page, or close this tab. Changes are saved first. */
+/** Save until nothing is pending (a save that was running may have left newer changes). */
+async function flushSaves() {
+  for (let i = 0; i < 5 && (saveTimer || saving || dirty || i === 0); i++) await saveNow({ publishNow: true }).catch(() => {});
+}
+
+async function closeSnap() {
+  if (saveTimer || saving || dirty) await flushSaves();
+  if (window.parent !== window) return window.parent.postMessage({ source: 'bugsnap-overlay', type: 'close' }, '*');
+  window.close();
+}
+$('closeSnap').addEventListener('click', closeSnap);
+
+window.addEventListener('message', async (e) => {
+  if (!server || e.origin !== new URL(server.url).origin) return;
+  const m = e.data;
+  if (!m || m.source !== 'bugsnap-embed') return;
+  const fromPanel = e.source === $('panel').contentWindow;
+  if (fromPanel) {
+    const reply = (msg) => $('panel').contentWindow?.postMessage({ source: 'bugsnap-host', ...msg }, new URL(server.url).origin);
+    if (m.type === 'ready') {
+      clearTimeout(mountPanel.timer);
+      $('panelWait').hidden = true;
+      $('panel').hidden = false;
+    } else if (m.type === 'error') {
+      $('panelWait').hidden = true;
+      showError(m.message || "Couldn't load the share options.");
+    } else if (m.type === 'flush') {
+      // Creating a link or issue: the server must have the latest marks first.
+      await flushSaves();
+      reply({ type: 'flushed' });
+    } else if (m.type === 'details') {
+      if (typeof m.title === 'string') {
+        $('title').value = m.title;
+        $('pageName').textContent = m.title;
+      }
+      if (typeof m.description === 'string') $('desc').value = m.description;
+    } else if (m.type === 'open' && /^https?:\/\//.test(m.url || '')) {
+      chrome.runtime.sendMessage({ type: 'open:url', url: m.url }).catch(() => {});
+    } else if (m.type === 'created' && m.kind === 'link') {
+      chrome.runtime.sendMessage({ type: 'snap:saved', id: rid, viewerUrl, shareUrl: m.url, title: $('title').value }).catch(() => {});
+    } else if (m.type === 'created' && m.issue?.number) {
+      toast(`Issue #${m.issue.number} created`);
+    } else if (m.type === 'close') {
+      closeSnap();
+    }
+    return;
+  }
+  // The older GitHub window (over the editor).
+  if (m.type === 'ready') {
+    $('ghLayer').classList.add('ready');
+    $('ghLayer').querySelector('iframe')?.focus();
+  }
+  if (m.type === 'error') {
+    closeGhLayer();
+    showError(m.message || "Couldn't open the GitHub window.");
+  }
+  if (m.type === 'close') {
+    closeGhLayer();
+    if (m.issue?.number) toast(`Issue #${m.issue.number} created`);
+  }
+});
+
 $('closeTab').addEventListener('click', async () => {
   if (saveTimer || saving) await saveNow({ publishNow: true });
   window.close();
@@ -908,6 +1033,7 @@ function loadImage(src) {
       fillMeta(draft.meta);
       setState('saved', 'All changes saved');
       fetchLink();
+      mountPanel();
       return;
     }
 
@@ -927,9 +1053,11 @@ function loadImage(src) {
     await createOnServer();
     setState('saved', 'Saved');
     fetchLink();
+    mountPanel();
     if (dirty || shapes.length) scheduleSave();
   } catch (err) {
     setState('error', "Couldn't save");
+    $('panelWait').hidden = true;
     showError(err.message, !editId);
     if (editId && !base.naturalWidth) showEmpty(err.message);
   }

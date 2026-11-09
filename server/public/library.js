@@ -85,6 +85,7 @@ async function load() {
     } else {
       items = await res.json();
       source = 'server';
+      await loadFolders();
     }
   } catch {
     items = inExtension ? await localRecent() : null;
@@ -185,7 +186,28 @@ function card(r) {
   const url = r.viewerUrl || `${base}/r/${r.id}`;
   const a = el('a', 'card');
   a.href = url;
-  a.addEventListener('click', (e) => open(url, e));
+  a.dataset.id = r.id;
+  a.addEventListener('click', (e) => {
+    // Ctrl/Cmd+click selects (to move several at once); a click while selecting adds to it.
+    if (source === 'server' && (e.ctrlKey || e.metaKey || e.shiftKey || selected.size)) {
+      e.preventDefault();
+      selected.has(r.id) ? selected.delete(r.id) : selected.add(r.id);
+      return drawSelection();
+    }
+    open(url, e);
+  });
+  if (source === 'server') {
+    a.addEventListener('dragstart', (e) => {
+      dragIds = selected.has(r.id) ? [...selected] : [r.id];
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragIds.join(','));
+      document.body.classList.add('dragging');
+    });
+    a.addEventListener('dragend', () => {
+      dragIds = null;
+      document.body.classList.remove('dragging');
+    });
+  }
 
   const thumb = el('div', isShot(r) ? 'thumb shot' : 'thumb');
   thumb.append(el('div', 'ph', 'No preview'));
@@ -254,8 +276,31 @@ function card(r) {
   });
 
   const meta = el('div', 'meta');
-  meta.append(el('strong', '', r.title || 'Untitled'), el('small', '', relative(r.createdAt)));
-  a.append(thumb, copy, meta);
+  meta.append(el('strong', '', r.title || 'Untitled'));
+  const f = folderById(r.folderId);
+  if (f && !filter.startsWith('folder:')) {
+    const tag = el('small', 'ftag');
+    const d = el('span', 'fdot');
+    d.style.background = f.color;
+    tag.append(d, document.createTextNode(f.name));
+    meta.append(tag);
+  }
+  meta.append(el('small', '', relative(r.createdAt)));
+  const acts = el('div', 'card-acts');
+  if (source === 'server') {
+    const mv = el('button', 'btn icon-only sm copy move');
+    mv.type = 'button';
+    mv.dataset.tip = 'Move to folder';
+    mv.append(icon('folder-open'));
+    mv.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      moveMenu(mv, selected.has(r.id) ? [...selected] : [r.id]);
+    });
+    acts.append(mv);
+  }
+  acts.append(copy);
+  a.append(thumb, acts, meta);
   if (isShot(r) && r.status === 'ready' && source !== 'offline') {
     const edit = el('button', 'btn icon-only sm copy edit');
     edit.type = 'button';
@@ -266,11 +311,340 @@ function card(r) {
       e.stopPropagation();
       openEditor(r.id, edit);
     });
-    a.append(edit);
+    acts.prepend(edit);
   }
   attachPreview(a, thumb, r);
   return a;
 }
+
+// ---------------------------------------------------------------- folders (projects)
+// A recording or screenshot sits in one folder (or none). Folders are kept on the server, so
+// everyone using it sees the same ones. Move by dragging cards onto a folder, with the card's
+// folder button, or by selecting several (Ctrl+click) and using the bar at the bottom.
+
+let folders = [];
+const selected = new Set();
+let dragIds = null;
+let creatingFolder = false;
+const folderById = (id) => folders.find((f) => f.id === id) || null;
+
+async function api(method, pathPart, body) {
+  const res = await fetch(`${base}${pathPart}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+  const out = res.status === 204 ? {} : await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || `Server answered ${res.status}`);
+  return out;
+}
+
+async function loadFolders() {
+  if (source !== 'server') return (folders = []);
+  try {
+    folders = (await api('GET', '/api/folders')).folders || [];
+  } catch {
+    folders = [];
+  }
+  return folders;
+}
+
+let toastTimer;
+function libToast(text, bad = false) {
+  let t = $('libToast');
+  if (!t) {
+    t = el('div', 'lib-toast');
+    t.id = 'libToast';
+    t.setAttribute('role', 'status');
+    document.body.append(t);
+  }
+  t.replaceChildren(icon(bad ? 'warning-circle' : 'check'), el('span', '', text));
+  t.classList.toggle('bad', bad);
+  t.hidden = false;
+  t.classList.remove('out');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    t.classList.add('out');
+    setTimeout(() => (t.hidden = true), 200);
+  }, bad ? 5000 : 2600);
+}
+
+// ---- a small menu under a button
+
+let openMenu = null;
+function closeMenu() {
+  openMenu?.remove();
+  openMenu = null;
+}
+document.addEventListener('mousedown', (e) => openMenu && !openMenu.contains(e.target) && closeMenu());
+window.addEventListener('resize', closeMenu);
+document.addEventListener('scroll', closeMenu, true);
+
+/** entries: { label, icon, onClick, danger, checked, dot } | 'sep' | { input: placeholder, onSubmit } */
+function showMenu(anchor, entries) {
+  closeMenu();
+  const m = el('div', 'lib-menu');
+  m.setAttribute('role', 'menu');
+  for (const it of entries) {
+    if (it === 'sep') {
+      m.append(el('hr'));
+      continue;
+    }
+    if (it.input) {
+      const f = el('form', 'menu-input');
+      const inp = el('input');
+      inp.placeholder = it.input;
+      inp.maxLength = 60;
+      f.append(icon('plus'), inp);
+      f.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const v = inp.value.trim();
+        if (!v) return;
+        closeMenu();
+        it.onSubmit(v);
+      });
+      inp.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
+      m.append(f);
+      continue;
+    }
+    const b = el('button', `menu-item${it.danger ? ' danger' : ''}`);
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    if (it.dot) {
+      const d = el('span', 'fdot');
+      d.style.background = it.dot;
+      b.append(d);
+    } else if (it.icon) b.append(icon(it.icon));
+    b.append(el('span', 'grow-txt', it.label));
+    if (it.checked) b.append(icon('check'));
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (it.keepOpen) return it.onClick(b);
+      closeMenu();
+      it.onClick();
+    });
+    m.append(b);
+  }
+  document.body.append(m);
+  let r = anchor.getBoundingClientRect();
+  // A hidden button (e.g. a folder's ⋯ opened from the keyboard): use its row instead.
+  if (!r.width) r = (anchor.closest('.nav') || anchor.parentElement).getBoundingClientRect();
+  const w = m.offsetWidth;
+  m.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+  const below = innerHeight - r.bottom;
+  if (below < m.offsetHeight + 12 && r.top > below) m.style.bottom = `${innerHeight - r.top + 6}px`;
+  else m.style.top = `${r.bottom + 6}px`;
+  openMenu = m;
+  m.querySelector('input')?.focus();
+  m.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu());
+  return m;
+}
+
+// ---- moving
+
+async function moveTo(ids, folderId) {
+  if (!ids?.length) return;
+  try {
+    await api('POST', '/api/folders/move', { ids, folderId });
+    for (const r of items || []) if (ids.includes(r.id)) r.folderId = folderId;
+    selected.clear();
+    const f = folderById(folderId);
+    libToast(`${ids.length === 1 ? 'Moved' : `Moved ${ids.length}`} to ${f ? f.name : 'No folder'}`);
+  } catch (err) {
+    libToast(err.message, true);
+  }
+  draw();
+}
+
+async function createFolder(name) {
+  try {
+    const f = await api('POST', '/api/folders', { name });
+    folders.push(f);
+    return f;
+  } catch (err) {
+    libToast(err.message, true);
+    return null;
+  }
+}
+
+/** The "Move to folder" menu for these recordings. */
+function moveMenu(anchor, ids) {
+  const current = ids.length === 1 ? (items || []).find((r) => r.id === ids[0])?.folderId || null : undefined;
+  showMenu(anchor, [
+    ...folders.map((f) => ({ label: f.name, dot: f.color, checked: current === f.id, onClick: () => moveTo(ids, f.id) })),
+    { label: 'No folder', icon: 'x', checked: current === null, onClick: () => moveTo(ids, null) },
+    'sep',
+    { input: 'New folder…', onSubmit: async (name) => {
+      const f = await createFolder(name);
+      if (f) await moveTo(ids, f.id);
+    } },
+  ]);
+}
+
+// ---- sidebar list
+
+function folderRow(f) {
+  const b = el('button', 'nav folder');
+  b.type = 'button';
+  b.dataset.folder = f.id;
+  b.classList.toggle('on', filter === `folder:${f.id}`);
+  const dot = el('span', 'fdot');
+  dot.style.background = f.color;
+  const more = el('span', 'fmore');
+  more.setAttribute('role', 'button');
+  more.setAttribute('aria-label', `Rename or delete ${f.name}`);
+  more.append(icon('dots-three'));
+  b.append(dot, el('span', 'fname', f.name), el('span', 'n', String(items ? items.filter((r) => r.folderId === f.id).length : f.count || 0)), more);
+  b.addEventListener('click', (e) => {
+    if (e.target.closest('.fmore')) return folderMenu(f, more);
+    filter = `folder:${f.id}`;
+    selected.clear();
+    draw();
+  });
+  b.addEventListener('dragover', (e) => {
+    if (!dragIds) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    b.classList.add('drop');
+  });
+  b.addEventListener('dragleave', () => b.classList.remove('drop'));
+  b.addEventListener('drop', (e) => {
+    e.preventDefault();
+    b.classList.remove('drop');
+    const ids = dragIds;
+    dragIds = null;
+    moveTo(ids, f.id);
+  });
+  return b;
+}
+
+function renameFolder(f) {
+  const row = $('folders').querySelector(`[data-folder="${f.id}"]`);
+  if (!row) return;
+  const form = el('form', 'folder-edit');
+  const inp = el('input');
+  inp.value = f.name;
+  inp.maxLength = 60;
+  inp.setAttribute('aria-label', 'Folder name');
+  form.append(inp);
+  row.replaceWith(form);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const name = inp.value.trim();
+    if (save && name && name !== f.name) {
+      try {
+        Object.assign(f, await api('PATCH', `/api/folders/${f.id}`, { name }));
+      } catch (err) {
+        libToast(err.message, true);
+      }
+    }
+    draw();
+  };
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    finish(true);
+  });
+  inp.addEventListener('keydown', (e) => e.key === 'Escape' && finish(false));
+  inp.addEventListener('blur', () => finish(true));
+}
+
+function folderMenu(f, anchor) {
+  showMenu(anchor, [
+    { label: 'Rename', icon: 'pencil-simple', onClick: () => renameFolder(f) },
+    {
+      label: 'Delete folder',
+      icon: 'trash',
+      danger: true,
+      keepOpen: true,
+      onClick: async (btn) => {
+        if (!btn.classList.contains('armed')) {
+          btn.classList.add('armed');
+          btn.querySelector('.grow-txt').textContent = 'Click again: recordings stay';
+          return;
+        }
+        closeMenu();
+        try {
+          await api('DELETE', `/api/folders/${f.id}`);
+          folders = folders.filter((x) => x !== f);
+          for (const r of items || []) if (r.folderId === f.id) r.folderId = null;
+          if (filter === `folder:${f.id}`) filter = 'all';
+          libToast(`Deleted "${f.name}". Its recordings are under All recordings.`);
+        } catch (err) {
+          libToast(err.message, true);
+        }
+        draw();
+      },
+    },
+  ]);
+}
+
+function newFolderRow() {
+  const form = el('form', 'folder-edit');
+  const inp = el('input');
+  inp.placeholder = 'Folder name';
+  inp.maxLength = 60;
+  inp.setAttribute('aria-label', 'New folder name');
+  form.append(inp);
+  let done = false;
+  // Enter creates and opens the folder; clicking elsewhere just creates it.
+  const finish = async (save, open = false) => {
+    if (done) return;
+    done = true;
+    creatingFolder = false;
+    const name = inp.value.trim();
+    if (save && name) {
+      const f = await createFolder(name);
+      if (f && open) {
+        filter = `folder:${f.id}`;
+        selected.clear();
+      }
+    }
+    draw();
+  };
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    finish(true, true);
+  });
+  inp.addEventListener('keydown', (e) => e.key === 'Escape' && finish(false));
+  inp.addEventListener('blur', () => finish(true));
+  setTimeout(() => inp.focus(), 0);
+  return form;
+}
+
+function drawFolders() {
+  const show = source === 'server';
+  document.querySelector('.folders-head').hidden = !show;
+  $('folders').hidden = !show;
+  if (!show) return;
+  const rows = folders.map(folderRow);
+  if (creatingFolder) rows.push(newFolderRow());
+  if (!rows.length) rows.push(el('p', 'folders-empty', 'Group recordings by project. Drag cards onto a folder.'));
+  $('folders').replaceChildren(...rows);
+}
+
+function drawSelection() {
+  $('selBar').hidden = !selected.size;
+  document.body.classList.toggle('has-sel', selected.size > 0);
+  $('selText').textContent = `${selected.size} selected`;
+  document.querySelectorAll('.card[data-id]').forEach((c) => c.classList.toggle('selected', selected.has(c.dataset.id)));
+}
+
+$('addFolder').addEventListener('click', () => {
+  creatingFolder = true;
+  drawFolders();
+});
+$('selMove').addEventListener('click', () => moveMenu($('selMove'), [...selected]));
+$('selClear').addEventListener('click', () => {
+  selected.clear();
+  drawSelection();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && selected.size && !openMenu) {
+    selected.clear();
+    drawSelection();
+  }
+});
 
 function emptyState(iconName, title, text) {
   const box = el('div', 'empty');
@@ -288,28 +662,33 @@ function draw() {
   if (source === 'offline') $('noteText').textContent = inExtension ? "Can't reach the server. Showing recordings from this computer." : "Can't reach the server.";
   if (source === 'local') $('noteText').textContent = 'Showing recordings from this computer.';
 
+  if (filter.startsWith('folder:') && !folderById(filter.slice(7))) filter = 'all';
+  drawFolders();
   for (const [key, fn] of Object.entries(FILTERS)) {
     const n = $(`n-${key}`);
     if (n) n.textContent = items ? String(items.filter(fn).length) : '';
   }
   document.querySelectorAll('[data-filter]').forEach((b) => b.classList.toggle('on', b.dataset.filter === filter));
-  $('heading').textContent = { all: 'All recordings', tab: 'Tab recordings', screen: 'Screen recordings', shots: 'Screenshots', errors: 'With errors' }[filter];
+  const inFolder = filter.startsWith('folder:') ? folderById(filter.slice(7)) : null;
+  $('heading').textContent = inFolder ? inFolder.name : { all: 'All recordings', tab: 'Tab recordings', screen: 'Screen recordings', shots: 'Screenshots', errors: 'With errors' }[filter];
+  drawSelection();
 
   if (items === null) return $('content').replaceChildren(emptyState('warning-circle', "Couldn't load recordings", 'Check the server and try again.'));
 
   const shown = items
-    .filter(FILTERS[filter])
+    .filter(inFolder ? (r) => r.folderId === inFolder.id : FILTERS[filter])
     .filter((r) => !q || `${r.title || ''} ${r.reporter || ''}`.toLowerCase().includes(q))
     .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt));
 
   if (!shown.length) {
     return $('content').replaceChildren(
-      items.length ? emptyState('magnifying-glass', 'No matches', 'Try another word or filter.') : emptyState('film-slate', 'No recordings yet', 'Record a tab or your screen to see it here.'),
+      inFolder && !q ? emptyState('folder-open', 'This folder is empty', 'Drag recordings here, or use the folder button on a card.') : items.length ? emptyState('magnifying-glass', 'No matches', 'Try another word or filter.') : emptyState('film-slate', 'No recordings yet', 'Record a tab or your screen to see it here.'),
     );
   }
   const grid = el('div', 'grid');
   grid.append(...shown.map(card));
   $('content').replaceChildren(grid);
+  drawSelection();
 }
 
 $('q').addEventListener('input', draw);
@@ -318,6 +697,7 @@ $('retry').addEventListener('click', load);
 document.querySelectorAll('[data-filter]').forEach((b) =>
   b.addEventListener('click', () => {
     filter = b.dataset.filter;
+    selected.clear();
     draw();
   }),
 );

@@ -120,3 +120,29 @@ canvas.dragging { cursor: grabbing; }
 .share { display: grid; gap: 6px; }
 .share label { font-size: 13px; font-weight: 600; }
 .alert .btn { margin-left: auto; }
+
+/* Create GitHub issue: the player's issue window opens over the editor */
+.gh-issue { width: 100%; justify-content: center; height: 42px; }
+.gh-layer { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: rgb(24 24 27 / 0.45); backdrop-filter: blur(2px); animation: fade-in .18s ease-out; }
+.gh-layer.ready { background: transparent; backdrop-filter: none; }
+.gh-layer.ready .gh-layer-spin { display: none; }
+.gh-layer.closing { animation: fade-out .18s ease-in forwards; }
+.gh-layer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: light; }
+.gh-layer-spin { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); box-shadow: var(--shadow-md); }
+.gh-layer-spin .icon { width: 22px; height: 22px; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Right side: the "Create a link / GitHub issue" panel from the server */
+.side { display: flex; flex-direction: column; overflow: hidden; }
+@media (min-width: 901px) { .layout { grid-template-columns: minmax(0, 1fr) 400px; } }
+.side > .alert { margin: 12px 14px 0; flex: none; }
+.panel { flex: 1; width: 100%; min-height: 0; border: 0; display: block; background: var(--surface); }
+.panel-wait { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+.panel-wait .icon { width: 24px; height: 24px; animation: spin .9s linear infinite; }
+.panel-wait[hidden], .panel[hidden] { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.top .save-state { margin-right: 6px; align-self: center; }
+#closeSnap .icon { width: 18px; height: 18px; }
+/* Inside the dialog over a page: a bit tighter */
+html.embed .top { height: 52px; }
+html.embed canvas { max-height: calc(100dvh - 150px); }

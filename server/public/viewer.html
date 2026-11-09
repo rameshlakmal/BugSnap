@@ -15,6 +15,8 @@
     <link rel="stylesheet" href="/viewer.css" />
   </head>
   <body>
+    <!-- Loading screen until the recording is ready to watch (like opening a shared link) -->
+    <div class="boot" id="boot" role="status" aria-label="Loading"><img class="boot-mark" src="/logo.svg" alt="" /><span class="boot-bar"><span></span></span></div>
     <header class="topbar">
       <a href="/" class="btn ghost icon-only home" id="home" data-tip="All recordings" data-local-only><span class="icon" data-icon="house"></span></a>
       <span class="brand" id="brand"><img class="mark" src="/logo.svg" alt="" /><span>BugSnap</span></span>
@@ -65,6 +67,7 @@
               <button class="cbtn" id="muteBtn" data-tip="Mute" data-kbd="M"><span class="icon" data-icon="speaker-high"></span></button>
               <span class="time" id="clock">0:00 / 0:00</span>
               <span class="spacer"></span>
+              <button class="cbtn" id="frameBtn" data-local-only data-tip="Capture this frame" data-kbd="S"><span class="icon" data-icon="camera"></span></button>
               <button class="cbtn text" id="speedBtn" data-tip="Playback speed">1x</button>
               <button class="cbtn" id="fullBtn" data-tip="Full screen" data-kbd="F"><span class="icon" data-icon="corners-out"></span></button>
             </div>
@@ -103,7 +106,41 @@
         <div class="pane" id="pane-info" hidden><div id="info" class="info"></div></div>
         <div class="pane" id="pane-steps"><ol class="events" id="list-steps"></ol></div>
         <div class="pane" id="pane-console" hidden><ol class="events" id="list-console"></ol></div>
-        <div class="pane" id="pane-network" hidden><ol class="events" id="list-network"></ol></div>
+        <div class="net-bar" id="netBar" hidden>
+          <div class="net-chips" id="netChips" role="group" aria-label="Request type">
+            <button type="button" data-net="all" class="on">All</button>
+            <button type="button" data-net="fetch">Fetch/XHR</button>
+            <button type="button" data-net="doc">Doc</button>
+            <button type="button" data-net="css">CSS</button>
+            <button type="button" data-net="js">JS</button>
+            <button type="button" data-net="font">Font</button>
+            <button type="button" data-net="img">Img</button>
+            <button type="button" data-net="media">Media</button>
+            <button type="button" data-net="ws">WS</button>
+            <button type="button" data-net="other">Other</button>
+          </div>
+          <span class="spacer"></span>
+          <label class="net-errs"><input type="checkbox" id="netErrors" />Errors only</label>
+          <button type="button" class="btn ghost icon-only sm" id="netWide" data-tip="Wider panel"><span class="icon" data-icon="arrows-out-simple"></span></button>
+        </div>
+        <div class="pane net-pane" id="pane-network" hidden>
+          <div class="net-table" id="netTable">
+            <div class="net-row net-th" id="netHead" role="row">
+              <span class="c-n">#</span><span class="c-name">Name</span><span class="c-method">Method</span><span class="c-status">Status</span><span class="c-domain">Domain</span><span class="c-type">Type</span><span class="c-size">Size</span><span class="c-time">Time</span><span class="c-wf">Waterfall</span>
+            </div>
+            <ol class="events net-list" id="list-network"></ol>
+          </div>
+          <section class="net-detail" id="netDetail" hidden aria-label="Request details">
+            <div class="nd-head">
+              <button type="button" class="btn ghost icon-only sm" id="ndClose" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+              <span class="nd-title" id="ndTitle"></span>
+              <button type="button" class="btn ghost icon-only sm" id="ndPrev" data-tip="Previous request" data-kbd="↑"><span class="icon" data-icon="arrow-left"></span></button>
+              <button type="button" class="btn ghost icon-only sm" id="ndNext" data-tip="Next request" data-kbd="↓"><span class="icon" data-icon="arrow-right"></span></button>
+            </div>
+            <nav class="nd-tabs" id="ndTabs" role="tablist"></nav>
+            <div class="nd-body" id="ndBody"></div>
+          </section>
+        </div>
         <div class="pane report" id="pane-report" hidden>
           <div class="ask" data-local-only>
             <label for="what">What happened?</label>
@@ -167,18 +204,31 @@
             <a class="btn primary" href="/settings#github">Open Settings</a>
           </div>
           <div class="gh-fields" id="ghFields">
-            <p class="gh-tip" id="ghTip" hidden>Tip: <button type="button" class="linkish" id="ghToReport">write the report with Claude</button> first for a complete issue.</p>
-            <div class="field"><label for="ghRepo">Repository</label><select id="ghRepo"></select></div>
+            <div class="ask gh-ask">
+              <label for="ghWhat">What happened?</label>
+              <textarea id="ghWhat" rows="2" placeholder="e.g. Unchecked a list and saved, but the bookmark still shows it. Any language is fine."></textarea>
+              <div class="ask-row">
+                <div class="segmented sm" role="group" aria-label="Report type">
+                  <button type="button" data-ghkind="bug" class="on" data-tip="Something is broken">Bug</button>
+                  <button type="button" data-ghkind="suggestion" data-tip="Something could be better">Suggestion</button>
+                </div>
+                <span class="ai-hint" id="ghAiHint"></span>
+                <span class="spacer"></span>
+                <button type="button" class="btn primary sm" id="ghWrite" data-tip="Claude fills the title and description from your words and the recording"><span class="icon" data-icon="sparkle"></span><span>Write with Claude</span></button>
+              </div>
+            </div>
+            <div class="field"><label id="ghRepoLabel">Repository</label>
+              <button type="button" class="pick" id="ghRepo" aria-haspopup="listbox" aria-labelledby="ghRepoLabel"><span class="pick-val"><span class="muted-sm">Loading…</span></span><span class="icon caret" data-icon="caret-down"></span></button>
+            </div>
             <div class="field"><label for="ghTitle">Title</label><input id="ghTitle" type="text" maxlength="256" autocomplete="off" /></div>
             <div class="field grow"><label for="ghBody">Description</label><textarea id="ghBody" spellcheck="true"></textarea></div>
-            <div class="field"><label>Labels</label><div class="chips" id="ghLabels"><span class="muted-sm">Choose a repository</span></div></div>
-            <div class="field"><label>Assignees</label><div class="chips" id="ghAssignees"><span class="muted-sm">Choose a repository</span></div></div>
-            <div class="field" id="ghMilestoneField" hidden><label for="ghMilestone">Milestone</label><select id="ghMilestone"></select></div>
-          </div>
-          <div class="gh-done" id="ghDone" hidden>
-            <span class="icon" data-icon="check"></span>
-            <strong id="ghDoneText">Issue created</strong>
-            <a class="btn primary" id="ghDoneLink" target="_blank" rel="noopener"><span class="icon" data-icon="arrow-square-out"></span><span>Open on GitHub</span></a>
+            <div class="gh-meta">
+              <button type="button" class="pick meta" id="ghLabels" aria-haspopup="listbox" data-tip="Labels"><span class="icon lead" data-icon="tag"></span><span class="pick-val"><span class="muted-sm">Labels</span></span><span class="icon caret" data-icon="caret-down"></span></button>
+              <button type="button" class="pick meta" id="ghAssignees" aria-haspopup="listbox" data-tip="Assignees"><span class="icon lead" data-icon="user-plus"></span><span class="pick-val"><span class="muted-sm">Assignees</span></span><span class="icon caret" data-icon="caret-down"></span></button>
+              <button type="button" class="pick meta" id="ghMilestone" aria-haspopup="listbox" data-tip="Milestone" hidden><span class="icon lead" data-icon="flag-pennant"></span><span class="pick-val"><span class="muted-sm">Milestone</span></span><span class="icon caret" data-icon="caret-down"></span></button>
+              <button type="button" class="pick meta" id="ghProjects" aria-haspopup="listbox" data-tip="Project boards" hidden><span class="icon lead" data-icon="squares-four"></span><span class="pick-val"><span class="muted-sm">Project</span></span><span class="icon caret" data-icon="caret-down"></span></button>
+            </div>
+            <div class="gh-boards" id="ghBoards"></div>
           </div>
           <div class="alert" id="ghAlert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="ghAlertText"></span></div>
           <div class="modal-foot" id="ghFoot">
@@ -187,6 +237,69 @@
             <button type="submit" class="btn primary" id="ghCreate"><span class="icon" data-icon="github-logo"></span><span>Create issue</span></button>
           </div>
         </form>
+        <div class="gh-done" id="ghDone" hidden>
+          <button type="button" class="btn ghost icon-only sm gh-done-x" id="ghDoneClose" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+          <span class="gh-done-mark"><span class="icon" data-icon="check"></span></span>
+          <strong id="ghDoneText">Issue created</strong>
+          <span class="gh-done-sub" id="ghDoneSub"></span>
+          <p class="gh-done-warn" id="ghDoneWarn" hidden></p>
+          <div class="gh-done-actions">
+            <button type="button" class="btn" id="ghDoneCopy"><span class="icon" data-icon="copy"></span><span>Copy link</span></button>
+            <a class="btn primary" id="ghDoneLink" target="_blank" rel="noopener noreferrer"><span class="icon" data-icon="arrow-square-out"></span><span>Open on GitHub</span></a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create: right after a capture (?create=1, or inside the extension). Left: the video with a trim
+         bar (or the screenshot). Right: "Create a [Link to share | GitHub issue]". -->
+    <div class="modal-back cr-back" id="cr" hidden data-local-only>
+      <div class="cr" role="dialog" aria-modal="true" aria-label="Share or report">
+        <section class="cr-media" id="crMedia">
+          <button type="button" class="btn icon-only cr-x" id="crClose" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+          <div class="cr-screen" id="crScreen">
+            <video id="crVideo" playsinline preload="auto"></video>
+            <img id="crImage" alt="Screenshot" hidden />
+            <div class="cr-state" id="crState" hidden><span class="icon spin" data-icon="spinner-gap"></span><span id="crStateText">Preparing video…</span></div>
+          </div>
+          <div class="cr-trim" id="crTrim" hidden>
+            <div class="cr-trim-row">
+              <button type="button" class="btn icon-only cr-play" id="crPlay" data-tip="Play" data-kbd="Space"><span class="icon" data-icon="play-fill"></span></button>
+              <div class="cr-track" id="crTrack">
+                <div class="cr-sel" id="crSel"></div>
+                <button type="button" class="cr-handle" id="crIn" aria-label="Trim start" data-tip="Drag to trim the start"><span></span></button>
+                <button type="button" class="cr-handle end" id="crOut" aria-label="Trim end" data-tip="Drag to trim the end"><span></span></button>
+                <div class="cr-head" id="crHead"></div>
+              </div>
+            </div>
+            <div class="cr-trim-info">
+              <span id="crLength">0 seconds</span>
+              <span class="cr-range" id="crRange" hidden></span>
+              <button type="button" class="linkish cr-reset" id="crReset" hidden>Reset</button>
+            </div>
+          </div>
+        </section>
+        <aside class="cr-side" id="crSide">
+          <div class="cr-top">
+            <span class="cr-label">Create a</span>
+            <button type="button" class="pick cr-kind" id="crKind" aria-haspopup="listbox"><span class="pick-val"></span><span class="icon caret" data-icon="caret-down"></span></button>
+            <button type="button" class="btn ghost icon-only sm cr-x2" id="crClose2" data-tip="Close" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
+          </div>
+          <div class="cr-body" id="crBody">
+            <div class="cr-link" id="crLinkFields">
+              <input class="cr-title" id="crTitle" type="text" maxlength="200" autocomplete="off" placeholder="Title" aria-label="Title" />
+              <textarea class="cr-desc" id="crDesc" maxlength="5000" placeholder="Write a description…" aria-label="Description"></textarea>
+              <p class="cr-note" id="crLinkNote"></p>
+            </div>
+            <div class="cr-gh" id="crGhSlot" hidden></div>
+          </div>
+          <div class="alert" id="crAlert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="crAlertText"></span></div>
+          <div class="cr-foot" id="crFoot">
+            <button type="button" class="pick cr-folder" id="crFolder" aria-haspopup="listbox"><span class="pick-val"></span><span class="icon caret" data-icon="caret-down"></span></button>
+            <span class="spacer"></span>
+            <button type="button" class="btn primary" id="crCreate"><span>Create</span></button>
+          </div>
+        </aside>
       </div>
     </div>
 

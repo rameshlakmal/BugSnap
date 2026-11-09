@@ -5,6 +5,7 @@
 // key for Anthropic, OpenAI, Google Gemini or OpenRouter, or local models through Ollama. Claude Code runs in print mode (-p), restricted (no shell or code
 // tools), with no MCP servers and no saved session, in an empty working folder.
 import Anthropic from '@anthropic-ai/sdk';
+import { isPrimaryNetwork } from './storage/local.js';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -468,7 +469,7 @@ export function reportContext({ record, events, link, description, kind }) {
     .slice(0, 20)
     .map((e) => `${at(e)} ${e.level}: ${str(e.message, 300)}${e.source ? ` (${str(e.source, 120)})` : ''}`);
   const network = list
-    .filter((e) => e.type === 'network' && (Number(e.status) === 0 || Number(e.status) >= 400))
+    .filter((e) => e.type === 'network' && isPrimaryNetwork(e) && (Number(e.status) === 0 || Number(e.status) >= 400))
     .slice(0, 20)
     .map((e) => `${at(e)} ${str(e.method, 10) || 'GET'} ${str(e.url, 200)} -> ${Number(e.status) || 'failed'}${e.durationMs !== undefined ? ` in ${e.durationMs} ms` : ''}${e.error ? ` (${str(e.error, 120)})` : ''}${e.responseBody ? `; response: ${str(e.responseBody, 300)}` : ''}`);
 

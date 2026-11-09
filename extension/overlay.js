@@ -481,7 +481,7 @@
     }
     // Recording saved: offer the link right here instead of opening a new tab.
     const fresh = changes.lastResult?.newValue;
-    if (area === 'local' && fresh && fresh.id !== changes.lastResult?.oldValue?.id && rec && forMe && (rec.mode === 'tab' || document.visibilityState === 'visible')) {
+    if (area === 'local' && fresh && !fresh.dialog && fresh.id !== changes.lastResult?.oldValue?.id && rec && forMe && (rec.mode === 'tab' || document.visibilityState === 'visible')) {
       saved = { entry: fresh, until: Date.now() + 10000, copied: false };
     }
     if (area === 'session' && changes.rec) {
