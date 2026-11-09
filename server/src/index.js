@@ -42,7 +42,7 @@ app.set('trust proxy', 'loopback');
 app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
 // What the login page itself needs before anyone is signed in.
-const OPEN_PATHS = /^\/(login|logout|tokens\.css|logo\.svg|favicon-32\.png|favicon\.ico|apple-touch-icon\.png|site\.webmanifest|fonts\/[\w.-]+)$/;
+const OPEN_PATHS = /^\/(login|logout|tokens\.css|logo\.svg|favicon-32\.png|favicon-16\.png|favicon\.ico|theme\.js|apple-touch-icon\.png|site\.webmanifest|fonts\/[\w.-]+)$/;
 
 // Who is asking: the extension sends a personal access key; browsers use the session cookie.
 app.use((req, res, next) => {
@@ -60,7 +60,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
 function loginPage({ next = '/', error = '', name = '' } = {}) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex" />
-<title>Sign in · BugSnap</title><link rel="icon" href="/logo.svg" type="image/svg+xml" /><link rel="stylesheet" href="/tokens.css" />
+<title>Sign in · BugSnap</title><link rel="icon" href="/logo.svg?v=3" type="image/svg+xml" /><script src="/theme.js"></script><link rel="stylesheet" href="/tokens.css" />
 <style>
 body { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .box { width: min(380px, 100%); padding: 28px; display: grid; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-md); animation: rise-in .25s var(--ease); }
@@ -74,7 +74,7 @@ input:focus { outline: none; border-color: var(--text); box-shadow: var(--ring);
 .btn { height: 42px; justify-content: center; }
 </style></head>
 <body><form class="box" method="post" action="/login">
-<div class="brand"><img src="/logo.svg" alt="" />BugSnap</div>
+<div class="brand"><img src="/logo.svg?v=3" alt="" />BugSnap</div>
 <h1>Sign in</h1><p>Use the name and password your BugSnap server was set up with.</p>
 ${error ? `<div class="err" role="alert">${escapeHtml(error)}</div>` : ''}
 <input type="hidden" name="next" value="${escapeHtml(next)}" />

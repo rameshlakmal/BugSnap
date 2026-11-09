@@ -27,8 +27,8 @@ Writing a good bug report takes longer than finding the bug. BugSnap does the bo
 |---|---|
 | Click **Record this tab** and reproduce the bug | Captures the video, every click and keystroke as plain sentences, console errors, failed requests, browser, OS and screen size |
 | Type what went wrong, in any language (English, Sinhala, Singlish…) | Writes a clean English bug report in your team's template |
-| Click **Copy link** | Gives you a public link that opens in a fast player, even before the upload finishes |
-| Click **Send to GitHub** | Files the issue with labels, assignees and the recording linked |
+| Pick **Link to share** and click **Create** | Gives you a public link that opens in a fast player, even before the upload finishes |
+| Pick **GitHub issue** and click **Create** | Files the issue with labels, assignees, project board fields and the screenshots inline |
 
 ---
 
@@ -36,16 +36,30 @@ Writing a good bug report takes longer than finding the bug. BugSnap does the bo
 
 ### 🎥 Record a tab or your whole screen
 
-A small control bar sits at the bottom of the page while you record: countdown, pause, stop and discard. Nothing opens or jumps around when you stop; the bar just says **Saved** with a **Copy link** button.
+A small control bar sits at the bottom of the page while you record: countdown, pause, stop and discard. When you stop, the recording opens in a dialog right on top of the page you were testing (see below).
 
 <p align="center"><img src="docs/images/control-bar.png" alt="Recording control bar: starting, countdown, recording and paused states" width="420" /></p>
+
+### 🪄 Share or report, right after you capture
+
+As soon as a recording or screenshot is done, a large dialog opens over the page:
+
+- **Left:** the video with a **trim bar** (drag the handles to cut the start or end), or the screenshot editor.
+- **Right:** **Create a [Link to share ▾ / GitHub issue]**.
+  - **Link to share** + **Create**: copies the public link and opens it in a new tab.
+  - **GitHub issue** + **Create**: the full issue form (AI writing, repository, labels, assignees, milestone, project boards) right in the dialog.
+- **Folder:** pick or create a project folder for it. New captures go to the folder you used last.
+
+On pages where extensions can't run (like `chrome://` pages), the dialog opens in its own tab.
 
 ### 🧭 A player built for debugging
 
 Video on the left, DevTools on the right, synced to the timeline.
 
 - **Steps**: `Clicks the "Pricing" link`, `Types "…" into the "Email" field`. Click a step to jump to that moment.
-- **Console** and **Network**: errors and failed requests are colour-coded and shown as red dots on the progress bar.
+- **Console**: errors and warnings, colour-coded and shown as red dots on the progress bar.
+- **Network**: a table like the browser's (name, method, status, domain, type, size, time and a waterfall) for every request: the page, scripts, styles, images, fonts, media, fetch/XHR and WebSockets. Filter by type or **Errors only**, and click a request for its headers, payload, response, timing breakdown or WebSocket messages. Passwords, tokens, cookies and auth headers are hidden.
+- **Capture a frame**: press **S** (or the camera button) to turn the current moment into a screenshot you can annotate. Captured frames appear as images in the recording's GitHub issue.
 - **Info**: browser, OS, window size, time zone and every page visited.
 - Keyboard controls (Space, J/L, M, F), resizable panel, and **Copy link at 0:07** to point at an exact moment.
 
@@ -85,11 +99,13 @@ Press **Alt+Shift+S**, drag over the area you want, and mark it up: arrows, boxe
 
 ### 🐙 GitHub issues in one click
 
-**Send to GitHub** opens a form already filled with the steps, environment and links. Describe the bug and click **Write with Claude** to fill in the full report. Pick the repository, labels, assignees, milestone and project boards (with their Status, Priority and other dropdowns), then **Create issue**. The issue number shows on the recording so you can find it again.
+Choose **GitHub issue** in the dialog after a capture (or **Send to GitHub** in the player). The form is already filled with the preconditions, steps and attachments. Describe the bug and click **Write with Claude** to write the full report. Pick the repository, labels, assignees, milestone and project boards (with their Severity, Priority and other dropdowns), then **Create**. Screenshots and captured frames go into the issue as images, not links, and the issue number shows on the recording so you can find it again.
 
 ### 🗂️ All your recordings in one place
 
 Every recording and screenshot lands in **All recordings**, even if you never copied the link. Filter by tab, screen, screenshots or recordings with errors, search with **Ctrl+K**, and hover a card to preview it.
+
+Group them by project with **folders**: create one with **+** in the sidebar, then drag cards onto it, use the folder button on a card, or **Ctrl+click** several cards and choose **Move to folder**. Deleting a folder never deletes what's in it.
 
 <p align="center"><img src="docs/images/recordings.png" alt="All recordings window with thumbnails, error badges and a GitHub issue badge" width="900" /></p>
 
@@ -112,10 +128,10 @@ flowchart LR
 ```
 
 1. The **extension** records the video and everything happening on the page.
-2. The **local server** on your computer makes the video seekable, builds the thumbnail and uploads it to **your Google Drive**.
+2. The **BugSnap server** (on your computer, or hosted for your team) makes the video seekable, builds the thumbnail and uploads it to **your Google Drive**.
 3. The **share link** opens a static player on GitHub Pages that streams straight from Drive. People watching don't need the server or an account.
 
-Your API keys and tokens stay on your computer, in `server/data`. They are never sent to the browser or to the public player.
+Your API keys and tokens stay on the server, in `server/data`. They are never sent to the browser or to the public player.
 
 ---
 
@@ -150,6 +166,10 @@ Click the BugSnap icon on any website, then **Record this tab**. Stop with the c
 
 > After pulling changes, restart the server and click the reload icon on the BugSnap card in `chrome://extensions`.
 
+### Host it for your team
+
+Run the server on an always-on machine (for example a free Oracle Cloud VM) so you don't have to keep your computer on. One script installs everything with HTTPS, each person signs in with their own name and password, and the extension connects with a personal access key. Step by step: [HOSTING.md](HOSTING.md).
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |
@@ -158,6 +178,7 @@ Click the BugSnap icon on any website, then **Record this tab**. Stop with the c
 | **Alt+Shift+P** | Pause or resume |
 | **Alt+Shift+S** | Take a screenshot |
 | **Ctrl+C** (in the editor) | Copy the annotated screenshot |
+| **S** (in the player) | Capture the current frame as a screenshot |
 | **Ctrl+K** (in Recordings) | Search |
 
 Change them at `chrome://extensions/shortcuts`.
@@ -178,7 +199,9 @@ All optional.
 | `VIEWER_URL` | empty | Your GitHub Pages player, e.g. `https://you.github.io/bugsnap-viewer` |
 | `DRIVE_FOLDER_NAME` | `BugSnap` | Drive folder for uploads |
 | `PUBLIC_BASE_URL` | `http://localhost:PORT` | Base for local share links |
-| `UPLOAD_TOKEN` | empty | Shared secret the extension must send to upload. Set it on any shared server. |
+| `UPLOAD_TOKEN` | empty | Shared secret the extension must send to upload (older setup; hosted servers use sign-in and access keys instead) |
+| `REQUIRE_LOGIN` | empty | `1` requires sign-in for everything (set by the hosting script). Add people with `npm run user add <name>`. |
+| `GOOGLE_REDIRECT_URI` | loopback | Google sign-in redirect for a hosted server, e.g. `https://your-domain/auth/google/callback` |
 | `DATA_DIR` | `server/data` | Where recordings are stored |
 | `FFMPEG_PATH` | `ffmpeg` | ffmpeg binary |
 | `DISABLE_LIST` | empty | `1` hides the list of all recordings |
@@ -201,16 +224,20 @@ extension/               Chrome/Edge extension (Manifest V3, plain JavaScript, n
   popup.*                record, screenshot, last recording
   recorder.*, offscreen.*  screen and tab recording
   snip.js, snap.*        area selection and screenshot editor
-  library.*              All recordings window
+  review.*               the share-or-report dialog after a recording
+  library.*              All recordings window (with folders)
   settings.*             settings page
 server/                  Node + Express
-  src/index.js           API, local player, Drive upload queue
+  src/index.js           API, local player, Drive upload queue, folders, trimming, frames
+  src/auth.js            sign-in and access keys for a hosted server
   src/drive.js           Google Drive: upload, sharing, manifests
   src/ai.js              AI reports (Claude Code, Anthropic, OpenAI, Gemini, OpenRouter, Ollama)
-  src/github.js          GitHub issues
-  src/media.js           ffmpeg: seekable video and thumbnails
+  src/github.js          GitHub issues and project boards
+  src/media.js           ffmpeg: seekable video, thumbnails and trimming
   public/                player, recordings grid
   scripts/build-viewer.js  builds the public player for GitHub Pages
+  scripts/user.js        add people, passwords and access keys (npm run user)
+  deploy/                setup and update scripts for hosting on Ubuntu
   test/                  end-to-end and Drive tests
 ```
 
@@ -232,7 +259,8 @@ npm run test:drive   # Drive upload logic against a fake Google, offline
 
 - Share links are "anyone with the link". To stop sharing one, set its Drive files to Restricted.
 - The server must be running while you record and upload; people watching only need the link.
-- Console and network capture covers the page's own `console`, `fetch` and `XMLHttpRequest`. Service workers, iframes, images and CSS are not captured. Headers and cookies are never captured, token-like query parameters are hidden, and response bodies are kept only for failed requests.
+- Network capture lists every request of the recorded tab with headers and timing; request and response bodies are kept for fetch/XHR calls (up to 64 KB each). Values of passwords, tokens, cookies and auth headers are replaced with •••• and token-like query parameters are hidden. Bodies are part of the shared recording, so avoid recording real customer data. Requests made by service workers are not captured.
+- Trimming re-encodes the video and replaces it (the share link stays the same); it can't be undone.
 - Recordings stop automatically after 30 minutes.
 - Screen recordings capture any app on video, but steps and logs come only from browser tabs.
 - The control bar appears in tab recordings. Minimise it to a dot if it's in the way.

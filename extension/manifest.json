@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BugSnap",
   "short_name": "BugSnap",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Record a tab or your screen with console logs, network logs and user steps, then share it by link.",
   "minimum_chrome_version": "116",
   "permissions": [

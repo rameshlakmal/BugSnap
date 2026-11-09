@@ -6,20 +6,22 @@
     <meta name="robots" content="noindex" />
     <title>Recording · BugSnap</title>
     <link rel="preload" href="/fonts/figtree.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/logo.svg?v=3" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png?v=3" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-16.png?v=3" type="image/png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#18181b" />
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/viewer.css" />
   </head>
   <body>
     <!-- Loading screen until the recording is ready to watch (like opening a shared link) -->
-    <div class="boot" id="boot" role="status" aria-label="Loading"><img class="boot-mark" src="/logo.svg" alt="" /><span class="boot-bar"><span></span></span></div>
+    <div class="boot" id="boot" role="status" aria-label="Loading"><img class="boot-mark" src="/logo.svg?v=3" alt="" /><span class="boot-bar"><span></span></span></div>
     <header class="topbar">
       <a href="/" class="btn ghost icon-only home" id="home" data-tip="All recordings" data-local-only><span class="icon" data-icon="house"></span></a>
-      <span class="brand" id="brand"><img class="mark" src="/logo.svg" alt="" /><span>BugSnap</span></span>
+      <span class="brand" id="brand"><img class="mark" src="/logo.svg?v=3" alt="" /><span>BugSnap</span></span>
       <nav class="crumbs" data-local-only><a href="/">All recordings</a><span class="sep">/</span></nav>
       <span class="crumb-title" id="crumbTitle"></span>
       <span class="spacer"></span>
@@ -39,6 +41,7 @@
           </div>
         </div>
       </div>
+      <button class="btn ghost icon-only theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
       <button class="btn ghost icon-only" id="togglePanel" data-tip="Hide DevTools"><span class="icon" data-icon="sidebar-simple"></span></button>
     </header>
 

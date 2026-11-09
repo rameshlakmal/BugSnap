@@ -235,7 +235,8 @@ async function finishSnap({ rect, vw, vh }, tabId) {
 // video or editor on the left and "Create a [Link to share | GitHub issue]" on the right.
 
 /** Runs inside the page: an isolated (shadow DOM) backdrop + card holding the extension page. */
-function mountCreateOverlay(src) {
+function mountCreateOverlay(src, themePref) {
+  const dark = themePref === 'dark' || (themePref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.getElementById('bugsnap-create')?.remove();
   const host = document.createElement('div');
   host.id = 'bugsnap-create';
@@ -244,9 +245,9 @@ function mountCreateOverlay(src) {
     :host { all: initial; }
     .back { position: fixed; inset: 0; z-index: 2147483646; display: grid; place-items: center; padding: 24px; box-sizing: border-box;
       background: rgb(24 24 27 / 0.45); backdrop-filter: blur(2px); animation: in .18s ease-out; }
-    .card { width: min(1480px, 100%); height: min(880px, 100%); border-radius: 20px; overflow: hidden; background: #fff;
+    .card { width: min(1480px, 100%); height: min(880px, 100%); border-radius: 20px; overflow: hidden; background: ${dark ? '#141417' : '#fff'};
       box-shadow: 0 30px 80px rgb(0 0 0 / 0.3); animation: rise .26s cubic-bezier(0.16, 1, 0.3, 1); }
-    iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; color-scheme: light; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
     .back.out { animation: out .16s ease-in forwards; }
     @keyframes in { from { opacity: 0; } }
     @keyframes out { to { opacity: 0; } }
@@ -280,7 +281,8 @@ async function showCreateDialog(pagePath, preferTabId, fallbackPath = pagePath) 
   }
   try {
     if (!tab || !/^(https?|file):/.test(tab.url || '')) throw new Error('This page does not allow extensions');
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: mountCreateOverlay, args: [chrome.runtime.getURL(pagePath)] });
+    const { theme = 'system' } = await chrome.storage.local.get('theme');
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: mountCreateOverlay, args: [chrome.runtime.getURL(pagePath), theme] });
     await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
   } catch {
     await chrome.tabs.create({ url: fallbackPath, windowId: tab?.windowId, index: tab ? tab.index + 1 : undefined });

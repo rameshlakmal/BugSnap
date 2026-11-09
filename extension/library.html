@@ -6,6 +6,7 @@
     <link rel="icon" href="icons/logo-small.svg" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Recordings · BugSnap</title>
+    <script src="lib/theme.js"></script>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="library.css" />
   </head>
@@ -27,6 +28,7 @@
         <h1 id="heading">All recordings</h1>
         <span class="spacer"></span>
         <label class="lib-search"><span class="icon" data-icon="magnifying-glass"></span><input id="q" type="search" placeholder="Search recordings" aria-label="Search recordings" /><span class="kbd">Ctrl K</span></label>
+        <button class="btn ghost icon-only theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
         <button class="btn ghost icon-only" id="refresh" data-tip="Refresh" data-icon="arrow-clockwise"></button>
       </header>
       <div class="lib-note" id="note" role="status" hidden><span class="icon" data-icon="warning-circle"></span><span id="noteText"></span><button class="btn sm" id="retry">Retry</button></div>

@@ -1,9 +1,10 @@
 /*
   BugSnap design language
-  - Light theme only. Graphite for actions and text, red for the brand, recording and errors.
+  - Light and dark (theme.js sets data-theme on <html>). Graphite for actions and text in light,
+    near-white actions in dark; red for the brand, recording and errors.
   - Type: Figtree (friendly, very readable) with tabular numbers for clocks.
     Geist Mono only for raw technical text (console output, request bodies).
-  - Shape rule: controls 10px, cards 14px, windows/large panels 18px. Pills only for badges.
+  - Shape rule: controls 10px, cards 16px, windows/large panels 20px. Pills only for badges.
   - Copy rule: short labels, one idea per line, no instructions the UI already shows.
   Keep in sync with server/public/tokens.css.
 */
@@ -32,20 +33,20 @@
   --font: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, Consolas, monospace;
 
-  /* Graphite + red. Graphite carries actions; red is the brand and the recording state. */
-  --bg: #f6f6f7;
+  /* Light. Graphite carries actions; red is the brand and the recording state. */
+  --bg: #f7f7f8;
   --surface: #ffffff;
-  --surface-2: #f2f2f4;
-  --surface-3: #e8e8eb;
-  --border: #e6e6ea;
-  --border-strong: #d2d2d8;
-  --text: #18181b;
-  --muted: #5d5d66;
-  --faint: #71717a;
+  --surface-2: #f4f4f5;
+  --surface-3: #e9e9ec;
+  --border: #e6e6e9;
+  --border-strong: #d4d4d8;
+  --text: #0f0f12;
+  --muted: #55555f;
+  --faint: #73737e;
 
-  --accent: #18181b;
-  --accent-hover: #2e2e33;
-  --accent-soft: rgb(24 24 27 / 0.06);
+  --accent: #16161a;
+  --accent-hover: #2c2c32;
+  --accent-soft: rgb(22 22 26 / 0.06);
   --on-accent: #ffffff;
 
   --brand: #e5484d;
@@ -53,21 +54,98 @@
   --live: #e5484d;
   --live-hover: #d63f44;
   --live-soft: rgb(229 72 77 / 0.1);
+  --on-live: #ffffff;
   --warn: #c27c00;
   --ok: #1a8f50;
+  --ok-soft: rgb(26 143 80 / 0.1);
+
+  /* Soft colour per kind (steps, statuses, methods) */
+  --tone-green: #15803d;   --tone-green-soft: rgb(22 163 74 / 0.1);
+  --tone-blue: #1d4ed8;    --tone-blue-soft: rgb(37 99 235 / 0.09);
+  --tone-violet: #6d28d9;  --tone-violet-soft: rgb(124 58 237 / 0.09);
+  --tone-amber: #b45309;   --tone-amber-soft: rgb(217 119 6 / 0.12);
+  --tone-teal: #0f766e;    --tone-teal-soft: rgb(13 148 136 / 0.1);
+  --tone-orange: #c2410c;  --tone-orange-soft: rgb(234 88 12 / 0.1);
+
+  /* Surfaces that float */
+  --glass: rgb(255 255 255 / 0.86);
+  --overlay: rgb(15 15 18 / 0.45);
+  --tip-bg: #16161a;
+  --tip-fg: #ffffff;
+  --pill-bg: #16161a;
+  --pill-fg: #fafafa;
+  --pill-border: transparent;
+  --row-alt: rgb(15 15 18 / 0.018);
+  --split-line: rgb(255 255 255 / 0.18);
+  --thumb-bg: #1c1c1f;
 
   --r-ctl: 10px;
   --r-field: 10px;
-  --r-panel: 14px;
-  --r-window: 18px;
+  --r-panel: 16px;
+  --r-window: 20px;
   --r-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
-  --shadow-md: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px rgb(16 24 40 / 0.07);
-  --shadow-lg: 0 2px 6px rgb(16 24 40 / 0.05), 0 18px 48px rgb(16 24 40 / 0.12);
-  --ring: 0 0 0 3px rgb(24 24 27 / 0.16);
+  --shadow-xs: 0 1px 1px rgb(16 24 40 / 0.04);
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 20px -4px rgb(16 24 40 / 0.08);
+  --shadow-lg: 0 2px 6px rgb(16 24 40 / 0.05), 0 20px 48px -8px rgb(16 24 40 / 0.16);
+  --shadow-xl: 0 30px 80px -12px rgb(16 24 40 / 0.35);
+  --ring: 0 0 0 3px rgb(22 22 26 / 0.14);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   color-scheme: light;
+}
+
+/* Dark: deep graphite surfaces stepping up in lightness, light actions, a brighter red. */
+:root[data-theme="dark"] {
+  --bg: #0c0c0e;
+  --surface: #141417;
+  --surface-2: #1b1b1f;
+  --surface-3: #26262c;
+  --border: #25252b;
+  --border-strong: #37373f;
+  --text: #ededf0;
+  --muted: #a3a3ae;
+  --faint: #8a8a96;
+
+  --accent: #ededf0;
+  --accent-hover: #ffffff;
+  --accent-soft: rgb(255 255 255 / 0.06);
+  --on-accent: #0f0f12;
+
+  --brand: #f2555a;
+  --brand-soft: rgb(242 85 90 / 0.14);
+  --live: #f2555a;
+  --live-hover: #ff6b70;
+  --live-soft: rgb(242 85 90 / 0.14);
+  --warn: #f5a524;
+  --ok: #3dd68c;
+  --ok-soft: rgb(61 214 140 / 0.12);
+
+  --tone-green: #4ade80;   --tone-green-soft: rgb(74 222 128 / 0.12);
+  --tone-blue: #7ea6ff;    --tone-blue-soft: rgb(96 145 255 / 0.14);
+  --tone-violet: #b89bff;  --tone-violet-soft: rgb(167 139 250 / 0.14);
+  --tone-amber: #fbbf24;   --tone-amber-soft: rgb(251 191 36 / 0.13);
+  --tone-teal: #2dd4bf;    --tone-teal-soft: rgb(45 212 191 / 0.12);
+  --tone-orange: #fb923c;  --tone-orange-soft: rgb(251 146 60 / 0.13);
+
+  --glass: rgb(20 20 23 / 0.82);
+  --overlay: rgb(0 0 0 / 0.6);
+  --tip-bg: #2a2a31;
+  --tip-fg: #f4f4f6;
+  --pill-bg: #1f1f24;
+  --pill-fg: #f4f4f6;
+  --pill-border: rgb(255 255 255 / 0.08);
+  --row-alt: rgb(255 255 255 / 0.02);
+  --split-line: rgb(0 0 0 / 0.2);
+  --thumb-bg: #1b1b1f;
+
+  --shadow-xs: 0 1px 1px rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -6px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 56px -10px rgb(0 0 0 / 0.65);
+  --shadow-xl: 0 30px 90px -10px rgb(0 0 0 / 0.75);
+  --ring: 0 0 0 3px rgb(255 255 255 / 0.2);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -103,17 +181,19 @@ body {
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
-  transition: background 0.18s var(--ease), border-color 0.18s var(--ease), transform 0.12s var(--ease);
+  box-shadow: var(--shadow-xs);
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease), transform 0.12s var(--ease), box-shadow 0.18s var(--ease);
 }
 .btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
 .btn:active { transform: scale(0.98); }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.btn:disabled, .btn.ghost:active { box-shadow: none; }
 .btn:disabled { opacity: 0.5; cursor: default; transform: none; }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), var(--shadow-sm); }
 .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.live { background: var(--live); border-color: var(--live); color: #fff; }
+.btn.live { background: var(--live); border-color: var(--live); color: var(--on-live); }
 .btn.live:hover { background: var(--live-hover); border-color: var(--live-hover); }
-.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); box-shadow: none; }
 .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
 .btn.sm { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
 .btn.icon-only { width: 38px; padding: 0; }
@@ -137,7 +217,7 @@ body {
 .switch input { appearance: none; width: 36px; height: 22px; border-radius: var(--r-pill); background: var(--surface-3); position: relative; cursor: pointer; transition: background 0.18s var(--ease); flex: none; margin: 0; }
 .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(16 24 40 / 0.2); transition: transform 0.18s var(--ease); }
 .switch input:checked { background: var(--accent); }
-.switch input:checked::after { transform: translateX(14px); }
+.switch input:checked::after { transform: translateX(14px); background: var(--on-accent); }
 .switch input:focus-visible { box-shadow: var(--ring); outline: none; }
 
 /* Panels */
@@ -169,12 +249,12 @@ body {
 .tip {
   position: fixed; left: 0; top: 0; z-index: 2147483000; pointer-events: none;
   display: inline-flex; align-items: center; gap: 8px; max-width: 260px;
-  padding: 6px 9px; border-radius: 8px; background: #18181b; color: #fff;
+  padding: 6px 9px; border-radius: 8px; background: var(--tip-bg); color: var(--tip-fg);
   font: 500 12.5px/1.35 var(--font); box-shadow: 0 6px 18px rgb(16 24 40 / 0.18);
   opacity: 0; transition: opacity 0.12s ease;
 }
 .tip.on { opacity: 1; }
-.tip-kbd { font: 600 11px/1 var(--font); padding: 3px 5px; border-radius: 5px; background: rgb(255 255 255 / 0.14); color: rgb(255 255 255 / 0.85); white-space: nowrap; }
+.tip-kbd { font: 600 11px/1 var(--font); padding: 3px 5px; border-radius: 5px; background: color-mix(in srgb, var(--tip-fg) 14%, transparent); color: color-mix(in srgb, var(--tip-fg) 85%, transparent); white-space: nowrap; }
 
 /* Menus (split buttons, overflow) */
 .menu-wrap { position: relative; display: inline-flex; }
@@ -195,7 +275,7 @@ body {
 /* Split button */
 .split { display: inline-flex; }
 .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.split > .btn:last-child, .split > .menu-wrap > .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: rgb(255 255 255 / 0.18); width: 34px; padding: 0; }
+.split > .btn:last-child, .split > .menu-wrap > .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: var(--split-line); width: 34px; padding: 0; }
 .split > .btn:not(.primary):last-child, .split > .menu-wrap > .btn:not(.primary) { border-left-color: var(--border); }
 
 /* Thin scrollbars everywhere */
@@ -217,3 +297,8 @@ body {
 .menu:not([hidden]) { animation: pop-in 0.16s var(--ease); transform-origin: top right; }
 .menu.closing { animation: pop-out 0.12s ease-in forwards; }
 .view-in { animation: view-in 0.2s var(--ease); }
+
+/* Theme switch: <button class="btn ghost icon-only theme-toggle" data-theme-toggle><span class="icon"></span></button> */
+.theme-toggle .icon { width: 18px; height: 18px; }
+/* Colour changes glide when switching themes, but never on first paint */
+html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after { transition: background-color .25s ease, border-color .25s ease, color .2s ease !important; }

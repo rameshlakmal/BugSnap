@@ -5,6 +5,7 @@
     <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Settings · BugSnap</title>
+    <script src="lib/theme.js"></script>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="settings.css" />
   </head>
@@ -15,6 +16,7 @@
       <span class="crumb">Settings</span>
       <span class="spacer"></span>
       <span class="server-chip" id="serverChip" data-state="checking" data-tip="BugSnap server"><span class="dot"></span><span id="serverChipText">Checking server…</span></span>
+      <button class="btn ghost icon-only sm theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
       <button class="btn sm" id="openLibrary"><span class="icon" data-icon="squares-four"></span><span>Recordings</span></button>
     </header>
 
@@ -39,6 +41,14 @@
               <span class="row-text"><strong>Your name</strong><small>Shown as the author on what you record.</small></span>
               <input class="input" id="reporterName" type="text" autocomplete="name" placeholder="e.g. Ramesh" />
             </label>
+            <div class="row">
+              <span class="row-text"><strong>Appearance</strong><small>Light, dark, or the same as Windows.</small></span>
+              <div class="theme-seg" role="radiogroup" aria-label="Appearance">
+                <button type="button" role="radio" data-theme-set="system"><span class="icon" data-icon="monitor"></span>System</button>
+                <button type="button" role="radio" data-theme-set="light"><span class="icon" data-icon="sun"></span>Light</button>
+                <button type="button" role="radio" data-theme-set="dark"><span class="icon" data-icon="moon"></span>Dark</button>
+              </div>
+            </div>
             <label class="row" for="captureLocation">
               <span class="row-text"><strong>Save my location</strong><small>Adds your approximate location to the recording details.</small></span>
               <span class="switch"><input id="captureLocation" type="checkbox" /></span>

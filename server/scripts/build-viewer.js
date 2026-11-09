@@ -20,7 +20,7 @@ if (!apiKey) {
 
 await fs.mkdir(path.join(out, 'fonts'), { recursive: true });
 
-for (const f of ['viewer.js', 'viewer.css', 'tokens.css', 'icons.js', 'tooltip.js', 'logo.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']) {
+for (const f of ['viewer.js', 'viewer.css', 'tokens.css', 'icons.js', 'tooltip.js', 'logo.svg', 'theme.js', 'favicon-16.png', 'favicon-32.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']) {
   await fs.copyFile(path.join(pub, f), path.join(out, f));
 }
 for (const f of await fs.readdir(path.join(pub, 'fonts'))) {

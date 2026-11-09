@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
     <title>Recording · BugSnap</title>
+    <script src="lib/theme.js"></script>
     <link rel="stylesheet" href="ui.css" />
     <style>
       html, body { height: 100%; margin: 0; background: var(--surface, #fff); }
@@ -18,8 +19,8 @@
       .fail .row { display: flex; gap: 8px; margin-top: 6px; }
       @keyframes spin { to { transform: rotate(360deg); } }
       /* As its own tab (pages that block extensions): a page around the dialog */
-      body.tab { background: #e9e9ec; padding: 24px; box-sizing: border-box; }
-      body.tab #frame { border-radius: 20px; box-shadow: 0 30px 80px rgb(0 0 0 / 0.18); background: #fff; }
+      body.tab { background: var(--surface-3); padding: 24px; box-sizing: border-box; }
+      body.tab #frame { border-radius: 20px; box-shadow: var(--shadow-xl); background: var(--surface); }
     </style>
   </head>
   <body>

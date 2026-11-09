@@ -847,6 +847,7 @@ $('ghIssue').addEventListener('click', async () => {
   layer.querySelector('iframe')?.remove();
   const url = new URL(viewerUrl);
   url.searchParams.set('embed', 'github');
+  url.searchParams.set('theme', window.BugSnapTheme?.pref || 'system');
   const frame = document.createElement('iframe');
   frame.src = url.href;
   frame.title = 'Create GitHub issue';
@@ -873,6 +874,7 @@ function mountPanel() {
   if (!viewerUrl || $('panel').src) return;
   const url = new URL(viewerUrl);
   url.searchParams.set('embed', 'panel');
+  url.searchParams.set('theme', window.BugSnapTheme?.pref || 'system');
   $('panel').src = url.href;
   clearTimeout(mountPanel.timer);
   mountPanel.timer = setTimeout(() => {

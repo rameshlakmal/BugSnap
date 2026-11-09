@@ -59,7 +59,8 @@ window.addEventListener('message', (e) => {
     return fail('The server address in BugSnap Settings is not valid.');
   }
   viewerUrl = `${server}/r/${encodeURIComponent(id)}`;
-  $('frame').src = `${viewerUrl}?embed=create`;
+  const { theme = 'system' } = await chrome.storage.local.get('theme');
+  $('frame').src = `${viewerUrl}?embed=create&theme=${encodeURIComponent(theme)}`;
   // Don't leave a spinner up forever if the server does not answer.
   fail.timer = setTimeout(() => !document.body.classList.contains('ready') && fail(`Can't reach the BugSnap server (${server}). Is it running?`), 15000);
 })();

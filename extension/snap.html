@@ -5,6 +5,7 @@
     <link rel="icon" href="icons/icon32.png" type="image/png" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Screenshot · BugSnap</title>
+    <script src="lib/theme.js"></script>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="snap.css" />
   </head>
@@ -17,6 +18,7 @@
       <div class="save-state" id="saveState" data-state="saving" role="status" aria-live="polite"><span class="dot"></span><span id="saveText">Saving…</span></div>
       <button class="btn ghost sm copy-btn" id="copyImage" data-tip="Copy the image to paste anywhere" data-kbd="Ctrl+C"><span class="swap"><span class="icon" data-icon="copy"></span><span class="icon ok-icon" data-icon="check"></span></span><span class="label">Copy image</span></button>
       <a class="btn ghost icon-only sm" id="download" data-tip="Download PNG" download="screenshot.png"><span class="icon" data-icon="download-simple"></span></a>
+      <button class="btn ghost icon-only sm theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
       <button class="btn ghost icon-only sm" id="closeSnap" data-tip="Close (saved automatically)" data-kbd="Esc"><span class="icon" data-icon="x"></span></button>
     </header>
 

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- BugSnap mark for tiny sizes (16px): the bug alone -->
+  <defs>
+    <linearGradient id="bs-tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#2e2e34"/>
+      <stop offset="1" stop-color="#0f0f11"/>
+    </linearGradient>
+    <radialGradient id="bs-dot" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#ff7d81"/>
+      <stop offset="1" stop-color="#e5484d"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="32" fill="url(#bs-tile)"/>
+  <rect x="1" y="1" width="126" height="126" rx="31" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="2"/>
+  <g transform="translate(64 64) scale(1.45) translate(-64 -67)">
+    <g stroke="#fff" stroke-width="5" stroke-linecap="round">
+      <path d="M50 67l-8-4M49 78h-9M50 89l-8 4M78 67l8-4M79 78h9M78 89l8 4"/>
+    </g>
+    <ellipse cx="64" cy="79" rx="16" ry="19" fill="#fff"/>
+    <path d="M64 65v28" stroke="#16161a" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="64" cy="51" r="12.5" fill="#141417"/>
+    <circle cx="64" cy="51" r="9.5" fill="url(#bs-dot)"/>
+  </g>
+</svg>

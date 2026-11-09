@@ -504,6 +504,7 @@
       const serverOrigin = new URL(settings?.serverUrl || 'http://localhost:4800').origin;
       if (location.origin !== serverOrigin) return;
       if (e.data.type === 'ping') return window.postMessage({ source: 'bugsnap-ext', type: 'pong' }, location.origin);
+      if (e.data.type === 'theme' && ['light', 'dark', 'system'].includes(e.data.theme)) return chrome.storage.local.set({ theme: e.data.theme });
       if (e.data.type === 'annotate') {
         await chrome.runtime.sendMessage({ type: 'snap:edit', id: String(e.data.id || '') });
         window.postMessage({ source: 'bugsnap-ext', type: 'annotate-ack', id: e.data.id }, location.origin);
@@ -512,6 +513,19 @@
       /* extension reloaded */
     }
   });
+
+  // Light/dark: the BugSnap pages on the server follow the extension's choice (and set it).
+  (async () => {
+    try {
+      const { settings, theme } = await chrome.storage.local.get(['settings', 'theme']);
+      if (location.origin !== new URL(settings?.serverUrl || 'http://localhost:4800').origin) return;
+      const tell = (t) => t && window.postMessage({ source: 'bugsnap-ext', type: 'theme', theme: t }, location.origin);
+      tell(theme);
+      chrome.storage.onChanged.addListener((c, area) => area === 'local' && c.theme && !retired && tell(c.theme.newValue));
+    } catch {
+      /* extension reloaded */
+    }
+  })();
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();

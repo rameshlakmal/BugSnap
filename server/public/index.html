@@ -6,17 +6,19 @@
     <meta name="robots" content="noindex" />
     <title>Recordings · BugSnap</title>
     <link rel="preload" href="/fonts/figtree.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/logo.svg?v=3" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png?v=3" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-16.png?v=3" type="image/png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#18181b" />
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/library.css" />
   </head>
   <body>
     <aside class="lib-side">
-      <div class="brand"><img class="mark" src="/logo.svg" alt="" />BugSnap</div>
+      <div class="brand"><img class="mark" src="/logo.svg?v=3" alt="" />BugSnap</div>
       <button class="nav on" data-filter="all"><span class="icon" data-icon="squares-four"></span>All recordings<span class="n" id="n-all"></span></button>
       <button class="nav" data-filter="tab"><span class="icon" data-icon="browser"></span>Tab<span class="n" id="n-tab"></span></button>
       <button class="nav" data-filter="screen"><span class="icon" data-icon="monitor"></span>Screen<span class="n" id="n-screen"></span></button>
@@ -32,6 +34,7 @@
         <h1 id="heading">All recordings</h1>
         <span class="spacer"></span>
         <label class="lib-search"><span class="icon" data-icon="magnifying-glass"></span><input id="q" type="search" placeholder="Search recordings" aria-label="Search recordings" /><span class="kbd">Ctrl K</span></label>
+        <button class="btn ghost icon-only theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
         <button class="btn ghost icon-only" id="refresh" data-tip="Refresh" data-icon="arrow-clockwise"></button>
       </header>
       <div class="lib-note" id="note" role="status" hidden><span class="icon" data-icon="warning-circle"></span><span id="noteText"></span><button class="btn sm" id="retry">Retry</button></div>

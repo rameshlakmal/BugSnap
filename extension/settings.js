@@ -462,3 +462,12 @@ window.addEventListener('focus', () => {
   await checkServer();
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
 })();
+
+// ---- Appearance (theme.js keeps every BugSnap page in step)
+function paintThemeSeg() {
+  const pref = window.BugSnapTheme?.pref || 'system';
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeSet === pref)));
+}
+document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => window.BugSnapTheme?.set(b.dataset.themeSet)));
+window.BugSnapTheme?.onChange(paintThemeSeg);
+paintThemeSeg();

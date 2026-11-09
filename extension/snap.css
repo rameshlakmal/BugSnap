@@ -20,7 +20,7 @@ body { display: flex; flex-direction: column; background: var(--surface); }
 .tools { display: flex; gap: 2px; }
 .tool { all: unset; box-sizing: border-box; width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; color: var(--muted); transition: background .15s var(--ease), color .15s var(--ease); }
 .tool:hover { background: var(--surface-2); color: var(--text); }
-.tool.on { background: var(--text); color: #fff; }
+.tool.on { background: var(--accent); color: var(--on-accent); }
 .tool:focus-visible { box-shadow: var(--ring); }
 .tool:disabled { opacity: .35; cursor: default; background: none; }
 .tool .icon { width: 19px; height: 19px; }
@@ -60,7 +60,7 @@ canvas.text-mode { cursor: text; }
 
 .done { animation: view-in .22s var(--ease); --from: 12px; }
 .ok { display: flex; align-items: center; gap: 10px; font-size: 17px; }
-.ok .icon { width: 28px; height: 28px; padding: 5px; border-radius: 50%; background: rgb(26 143 80 / 0.12); color: var(--ok); box-sizing: content-box; }
+.ok .icon { width: 28px; height: 28px; padding: 5px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); box-sizing: content-box; }
 .linkrow { display: flex; gap: 8px; }
 .linkrow input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--bg); color: var(--muted); font: 400 13.5px/1 var(--font); }
 .row2 { display: flex; gap: 8px; }
@@ -90,17 +90,17 @@ canvas.dragging { cursor: grabbing; }
 .copy-btn .swap { position: relative; width: 17px; height: 17px; display: inline-grid; }
 .copy-btn .swap .icon { position: absolute; inset: 0; width: 17px; height: 17px; transition: transform .28s var(--ease), opacity .2s ease; }
 .copy-btn .ok-icon { opacity: 0; transform: scale(.4) rotate(-30deg); color: var(--ok); }
-.copy-btn.copied { background: rgb(26 143 80 / 0.1); color: var(--ok); animation: pulse-ok .5s var(--ease); }
+.copy-btn.copied { background: var(--ok-soft); color: var(--ok); animation: pulse-ok .5s var(--ease); }
 .copy-btn.copied .swap .icon:first-child { opacity: 0; transform: scale(.4) rotate(30deg); }
 .copy-btn.copied .ok-icon { opacity: 1; transform: none; }
 .copy-btn.failed { color: var(--live); animation: shake .35s ease; }
-@keyframes pulse-ok { 0% { box-shadow: 0 0 0 0 rgb(26 143 80 / 0.35); } 100% { box-shadow: 0 0 0 10px rgb(26 143 80 / 0); } }
+@keyframes pulse-ok { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 35%, transparent); } 100% { box-shadow: 0 0 0 10px rgb(26 143 80 / 0); } }
 @keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 
 /* Toast */
 .toast {
   position: fixed; left: 50%; bottom: 24px; z-index: 30; display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-radius: 12px; background: #18181b; color: #fff; font: 600 13.5px/1 var(--font);
+  padding: 10px 14px; border-radius: 12px; background: var(--pill-bg); color: var(--pill-fg); border: 1px solid var(--pill-border); font: 600 13.5px/1 var(--font);
   box-shadow: 0 12px 30px rgb(0 0 0 / .25); pointer-events: none;
   opacity: 0; transform: translate(-50%, 12px) scale(.97); transition: opacity .2s ease, transform .25s var(--ease);
 }
@@ -112,7 +112,7 @@ canvas.dragging { cursor: grabbing; }
 .save-state { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-size: 13px; font-weight: 600; color: var(--muted); padding: 5px 10px 5px 8px; border-radius: var(--r-pill); background: var(--surface-2); transition: background .2s var(--ease), color .2s var(--ease); }
 .save-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .save-state[data-state="saving"] .dot { background: var(--warn); animation: blink 1s ease-in-out infinite; }
-.save-state[data-state="saved"] { color: var(--ok); background: rgb(26 143 80 / 0.1); }
+.save-state[data-state="saved"] { color: var(--ok); background: var(--ok-soft); }
 .save-state[data-state="saved"] .dot { background: var(--ok); }
 .save-state[data-state="error"] { color: var(--live); background: var(--live-soft); }
 .save-state[data-state="error"] .dot { background: var(--live); }
@@ -123,7 +123,7 @@ canvas.dragging { cursor: grabbing; }
 
 /* Create GitHub issue: the player's issue window opens over the editor */
 .gh-issue { width: 100%; justify-content: center; height: 42px; }
-.gh-layer { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: rgb(24 24 27 / 0.45); backdrop-filter: blur(2px); animation: fade-in .18s ease-out; }
+.gh-layer { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: var(--overlay); backdrop-filter: blur(3px); animation: fade-in .18s ease-out; }
 .gh-layer.ready { background: transparent; backdrop-filter: none; }
 .gh-layer.ready .gh-layer-spin { display: none; }
 .gh-layer.closing { animation: fade-out .18s ease-in forwards; }
