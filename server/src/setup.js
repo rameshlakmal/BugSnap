@@ -136,6 +136,9 @@ export async function checkPlayer(viewerUrl, apiKey, host) {
     };
   }
   if (res.status === 404) return { ok: false, message: fix.missing };
+  if (res.status >= 500 && /\.vercel\.app/i.test(viewerUrl)) {
+    return { ok: false, message: `The player answered with an error (${res.status}). On Vercel, check Settings, Build and Deployment: Framework Preset "Other", then Deployments, Redeploy.` };
+  }
   if (!res.ok) return { ok: false, message: `The player answered with an error (${res.status}).` };
   const text = await res.text();
   const m = /"driveApiKey"\s*:\s*"([^"]*)"/.exec(text);
