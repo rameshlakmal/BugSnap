@@ -13,6 +13,8 @@ Screen recordings and screenshots with console logs, network requests, user step
 ![Google Drive](https://img.shields.io/badge/Sharing-Google%20Drive-18181b?style=flat-square&logo=googledrive&logoColor=white)
 ![AI](https://img.shields.io/badge/AI%20reports-Claude%20%C2%B7%20OpenAI%20%C2%B7%20Gemini%20%C2%B7%20Ollama-e5484d?style=flat-square)
 
+**[Install guide](INSTALL.md)** · [Quick start](#quick-start) · [Features](#features) · [How it works](#how-it-works)
+
 <img src="docs/images/player.png" alt="BugSnap player with the video on the left and DevTools steps on the right" width="900" />
 
 </div>
