@@ -144,5 +144,20 @@ export async function checkPlayer(viewerUrl, apiKey, host) {
   const m = /"driveApiKey"\s*:\s*"([^"]*)"/.exec(text);
   if (!m) return { ok: false, message: "That address doesn't look like a BugSnap player." };
   if (apiKey && m[1] !== apiKey) return { ok: false, message: `The player uses a different API key. ${fix.key}` };
+  // The player is up; now ask Google whether this key may be used from the player's address
+  // (keys limited to other websites fail here). A made-up file id: 404 means the key works.
+  try {
+    const drive = await fetch(`https://www.googleapis.com/drive/v3/files/bugsnap-key-check?key=${encodeURIComponent(m[1])}`, {
+      headers: { Referer: `${viewerUrl.replace(/\/+$/, '')}/` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (drive.status === 400) return { ok: false, message: "Google doesn't accept this API key. Check you copied all of it." };
+    if (drive.status === 403) {
+      const host = new URL(viewerUrl).host;
+      return { ok: false, message: `Google blocks this API key on ${host}. In Google Cloud, open the key and add https://${host}/* under Website restrictions (or turn on the Google Drive API for its project). Changes take up to 5 minutes.` };
+    }
+  } catch {
+    /* Google unreachable: the player itself is fine */
+  }
   return { ok: true, message: 'Player is live.' };
 }
