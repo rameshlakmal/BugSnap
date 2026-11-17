@@ -660,7 +660,7 @@ app.put('/api/setup', localOnly, express.json({ limit: '16kb' }), async (req, re
 });
 
 app.post('/api/setup/check-player', localOnly, async (req, res) => {
-  res.json(await checkPlayer(setup.get('viewerUrl'), setup.get('driveApiKey')));
+  res.json(await checkPlayer(setup.get('viewerUrl'), setup.get('driveApiKey'), setup.get('playerHost')));
 });
 
 app.get('/setup', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'setup.html')));

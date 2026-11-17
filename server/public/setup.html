@@ -71,19 +71,53 @@
         <!-- 3. Player -->
         <section class="view" data-view="player" hidden>
           <h1>Your share player</h1>
-          <p class="lead">Share links open a small player page that streams from your Drive. It runs free on <em>your</em> GitHub Pages, built by your copy of the BugSnap repository.</p>
+          <p class="lead">Share links open a small player page that streams from your Drive. You host it yourself, for free, wherever you like.</p>
           <ol class="todo">
             <li><div><strong>Create an API key</strong> (Create credentials, API key). Then edit it: API restrictions, Restrict key, tick <b>Google Drive API</b>, Save. Paste it below.</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/apis/credentials"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+          </ol>
+          <h2 class="sub">Where should the player live?</h2>
+          <div class="choices three" role="radiogroup" aria-label="Player host">
+            <button type="button" class="choice sm" data-host="vercel" role="radio">
+              <span class="ch-icon" data-icon="vercel-logo"></span>
+              <strong>Vercel</strong>
+              <span>Free. Your copy can stay private.</span>
+            </button>
+            <button type="button" class="choice sm" data-host="github" role="radio">
+              <span class="ch-icon" data-icon="github-logo"></span>
+              <strong>GitHub Pages</strong>
+              <span>Free. Your copy must be public.</span>
+            </button>
+            <button type="button" class="choice sm" data-host="other" role="radio">
+              <span class="ch-icon" data-icon="globe-simple"></span>
+              <strong>Somewhere else</strong>
+              <span>Netlify, Cloudflare Pages or your own server.</span>
+            </button>
+          </div>
+
+          <ol class="todo host" data-host-steps="vercel" hidden>
+            <li><div><strong>Import your copy on Vercel:</strong> sign in with GitHub (the free Hobby plan is enough), then <b>Import</b> your BugSnap copy<span data-repo-name></span>. Not listed? Click <b>Adjust GitHub App Permissions</b> and give Vercel access to it. Leave the build settings as they are.</div><a class="btn sm" target="_blank" rel="noopener" href="https://vercel.com/new"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Add the key, then Deploy:</strong> open <b>Environment Variables</b>, name <code>DRIVE_API_KEY</code>, value: your key. Click <b>Deploy</b>. It takes about a minute.<span class="copyline"><code>DRIVE_API_KEY</code><button type="button" class="btn ghost icon-only sm" data-copy-text="DRIVE_API_KEY" data-tip="Copy name"><span class="icon" data-icon="copy"></span></button></span></div></li>
+            <li><div><strong>Copy the player address:</strong> on the project page, under <b>Domains</b>, the short one ending in <code>.vercel.app</code>. Paste it below.</div></li>
+          </ol>
+
+          <ol class="todo host" data-host-steps="github" hidden>
             <li><div><strong>Give the key to your GitHub copy:</strong> New repository variable, name <code>DRIVE_API_KEY</code>, value: your key.<span class="copyline"><code>DRIVE_API_KEY</code><button type="button" class="btn ghost icon-only sm" data-copy-text="DRIVE_API_KEY" data-tip="Copy name"><span class="icon" data-icon="copy"></span></button></span></div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="settings/variables/actions/new"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
-            <li><div><strong>Turn on GitHub Pages:</strong> Source, <b>GitHub Actions</b>.</div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="settings/pages"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Turn on GitHub Pages:</strong> Source, <b>GitHub Actions</b>. Your copy must be public for this on a free account.</div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="settings/pages"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
             <li><div><strong>Publish the player:</strong> Run workflow, Run workflow. It takes about a minute.</div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="actions/workflows/player.yml"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
           </ol>
-          <div class="form-grid">
+
+          <ol class="todo host" data-host-steps="other" hidden>
+            <li><div><strong>Save your key below first</strong> (Save and check), then build the player: open a terminal in the <code>server</code> folder and run the command. It makes a <code>viewer-site</code> folder next to <code>server</code>.<span class="copyline"><code>npm run build:viewer</code><button type="button" class="btn ghost icon-only sm" data-copy-text="npm run build:viewer" data-tip="Copy"><span class="icon" data-icon="copy"></span></button></span></div></li>
+            <li><div><strong>Upload the folder</strong> to any static host. The easiest: drag <code>viewer-site</code> onto Netlify Drop.</div><a class="btn sm" target="_blank" rel="noopener" href="https://app.netlify.com/drop"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Copy the address</strong> your host gives you (it must start with <code>https://</code>) and paste it below.</div></li>
+          </ol>
+
+          <div class="form-grid" id="playerForm" hidden>
             <div class="field"><label for="apiKey">API key</label><input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="AIza…" /></div>
-            <div class="field"><label for="repo">Your GitHub copy</label><input id="repo" type="text" autocomplete="off" spellcheck="false" placeholder="your-name/BugSnap" /></div>
-            <div class="field wide"><label for="viewerUrl">Player address</label><input id="viewerUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://your-name.github.io/BugSnap" /><span class="help" id="viewerHelp">Filled in from your GitHub copy. Change it if you use another address.</span></div>
+            <div class="field" data-host-only="github"><label for="repo">Your GitHub copy</label><input id="repo" type="text" autocomplete="off" spellcheck="false" placeholder="your-name/BugSnap" /></div>
+            <div class="field wide"><label for="viewerUrl">Player address</label><input id="viewerUrl" type="url" autocomplete="off" spellcheck="false" /><span class="help" id="viewerHelp"></span></div>
           </div>
-          <div class="status-row">
+          <div class="status-row" id="playerCheck" hidden>
             <div class="status" id="playerStatus"></div>
             <button type="button" class="btn" id="savePlayer"><span>Save and check</span></button>
           </div>

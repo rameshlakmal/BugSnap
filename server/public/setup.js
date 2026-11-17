@@ -1,5 +1,5 @@
 // Setup page: walks a new person through storage, their own Google app, their own share player
-// (GitHub Pages, built by their copy of the repo) and the extension. Saves to /api/setup as it goes.
+// (Vercel, GitHub Pages or any static host) and the extension. Saves to /api/setup as it goes.
 const $ = (id) => document.getElementById(id);
 const I = globalThis.ScreenRecIcons || {};
 const paint = (scope = document) => scope.querySelectorAll('[data-icon]').forEach((el) => (el.innerHTML = I[el.dataset.icon] || ''));
@@ -63,11 +63,19 @@ function renderRail() {
   });
 }
 
+// Where the share player lives. Each host has its own steps and address hint.
+const HOSTS = {
+  vercel: { placeholder: 'https://your-project.vercel.app', help: 'The address under Domains on your Vercel project.' },
+  github: { placeholder: 'https://your-name.github.io/BugSnap', help: 'Filled in from your GitHub copy. Change it if you use another address.' },
+  other: { placeholder: 'https://your-player.example.com', help: 'The address your host gave you.' },
+};
+let host = null;
+
 function guessViewer(repo) {
   const m = /^([\w.-]+)\/([\w.-]+)$/.exec(repo || '');
   if (!m) return '';
-  const host = `${m[1].toLowerCase()}.github.io`;
-  return m[2].toLowerCase() === host ? `https://${host}` : `https://${host}/${m[2]}`;
+  const h = `${m[1].toLowerCase()}.github.io`;
+  return m[2].toLowerCase() === h ? `https://${h}` : `https://${h}/${m[2]}`;
 }
 
 function paintGhLinks() {
@@ -79,6 +87,35 @@ function paintGhLinks() {
     a.classList.toggle('disabled', !ok);
     a.dataset.tip = ok ? '' : 'Fill in "Your GitHub copy" first';
   });
+}
+
+function paintHost() {
+  document.querySelectorAll('[data-host]').forEach((b) => {
+    const on = b.dataset.host === host;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  document.querySelectorAll('[data-host-steps]').forEach((ol) => (ol.hidden = ol.dataset.hostSteps !== host));
+  document.querySelectorAll('[data-host-only]').forEach((el) => (el.hidden = el.dataset.hostOnly !== host));
+  $('playerForm').hidden = $('playerCheck').hidden = !host;
+  if (!host) return;
+  $('viewerUrl').placeholder = HOSTS[host].placeholder;
+  $('viewerHelp').textContent = HOSTS[host].help;
+  const guess = guessViewer(($('repo').value || state.githubRepo || state.guess?.repo || '').trim());
+  if (host === 'github') {
+    $('repo').value = $('repo').value || state.githubRepo || state.guess?.repo || '';
+    if (!viewerTouched && !$('viewerUrl').value) $('viewerUrl').value = guess;
+    paintGhLinks();
+  } else if (!viewerTouched && guess && $('viewerUrl').value === guess && state.viewerUrl !== guess) {
+    $('viewerUrl').value = ''; // our GitHub guess, not an address for this host
+  }
+}
+
+// The address people paste: keep just https://host/path, the way the player check expects it.
+function cleanViewerUrl(v) {
+  v = v.trim();
+  if (v && !/^https?:\/\//i.test(v)) v = `https://${v}`;
+  return v.replace(/\/+$/, '');
 }
 
 function renderStep() {
@@ -98,9 +135,10 @@ function renderStep() {
     $('connectGoogle').querySelector('span:last-child').textContent = state.drive.connected ? 'Connect again' : 'Save and connect Drive';
   } else if (current === 'player') {
     $('apiKey').value = $('apiKey').value || state.driveApiKey || '';
-    $('repo').value = $('repo').value || state.githubRepo || state.guess?.repo || '';
-    $('viewerUrl').value = $('viewerUrl').value || state.viewerUrl || state.guess?.url || guessViewer($('repo').value);
-    paintGhLinks();
+    $('viewerUrl').value = $('viewerUrl').value || state.viewerUrl || '';
+    document.querySelectorAll('[data-repo-name]').forEach((el) => (el.textContent = state.guess?.repo ? ` (${state.guess.repo})` : ''));
+    host = host || state.playerHost || null;
+    paintHost();
     if (!$('playerStatus').textContent) setStatus($('playerStatus'), '', state.viewerUrl ? 'Saved. Check it any time.' : 'Not checked yet');
   } else if (current === 'extension') {
     $('extFolder').textContent = state.extensionFolder;
@@ -150,6 +188,14 @@ $('connectGoogle').addEventListener('click', async () => {
   }
 });
 
+
+document.querySelectorAll('[data-host]').forEach((b) =>
+  b.addEventListener('click', () => {
+    host = b.dataset.host;
+    paintHost();
+    save({ playerHost: host }).catch(() => {});
+  }),
+);
 $('repo').addEventListener('input', () => {
   paintGhLinks();
   if (!viewerTouched) $('viewerUrl').value = guessViewer($('repo').value.trim());
@@ -159,7 +205,8 @@ $('viewerUrl').addEventListener('input', () => (viewerTouched = true));
 $('savePlayer').addEventListener('click', async () => {
   setStatus($('playerStatus'), 'busy', 'Checking the player…');
   try {
-    await save({ driveApiKey: $('apiKey').value.trim(), viewerUrl: $('viewerUrl').value.trim(), githubRepo: $('repo').value.trim() });
+    $('viewerUrl').value = cleanViewerUrl($('viewerUrl').value);
+    await save({ driveApiKey: $('apiKey').value.trim(), viewerUrl: $('viewerUrl').value, githubRepo: $('repo').value.trim(), playerHost: host });
     const r = await api('POST', '/api/setup/check-player');
     setStatus($('playerStatus'), r.ok ? 'ok' : 'bad', r.message);
     renderRail();
@@ -198,7 +245,7 @@ async function next(skipping) {
   const steps = visibleSteps();
   if (current === 'player' && !skipping && !stepDone.player()) {
     // Continue saves what was typed, even before the player is published.
-    await save({ driveApiKey: $('apiKey').value.trim(), viewerUrl: $('viewerUrl').value.trim(), githubRepo: $('repo').value.trim() }).catch(() => {});
+    await save({ driveApiKey: $('apiKey').value.trim(), viewerUrl: cleanViewerUrl($('viewerUrl').value), githubRepo: $('repo').value.trim(), playerHost: host }).catch(() => {});
   }
   if (current === 'extension') await save({ finished: true });
   show(steps[Math.min(steps.length - 1, steps.indexOf(current) + 1)]);

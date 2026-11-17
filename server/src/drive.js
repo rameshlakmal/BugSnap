@@ -1,6 +1,6 @@
 // Google Drive publishing: after a recording is processed, upload the video, poster and a
 // manifest (metadata + events) to a "BugSnap" folder in your Drive, make them viewable by
-// anyone with the link, and build a share link to the static player (GitHub Pages).
+// anyone with the link, and build a share link to the static player (Vercel, GitHub Pages or any host).
 //
 // Auth: OAuth "Desktop app" client, drive.file scope (the app only sees files it created).
 // The refresh token is kept in <dataDir>/google-drive.json. No Google SDK: plain fetch.

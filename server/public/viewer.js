@@ -3,7 +3,7 @@
 //
 // Two sources:
 //  - local server: /r/<id>, data from /api/recordings/<id> (review screen, editing, upload status)
-//  - public player (GitHub Pages, built by scripts/build-viewer.js): ?id=<manifest>&v=<video>,
+//  - public player (Vercel, GitHub Pages or any host, built by scripts/build-viewer.js): ?id=<manifest>&v=<video>,
 //    data and video streamed straight from Google Drive with a browser API key.
 
 const $ = (id) => document.getElementById(id);

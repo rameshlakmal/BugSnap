@@ -6,7 +6,7 @@
 Extension ──► BugSnap on your computer ──► your Google Drive (BugSnap folder, "anyone with the link")
                                                   ▲
                                                   │ streams video + logs
-Share link opens https://<you>.github.io/<your-copy>/?id=…   (your own player, built by your copy)
+Share link opens https://<your-player>/?id=…   (your own player: Vercel, GitHub Pages or any host)
 ```
 
 Everything here is yours: your Google app, your Drive, your player. Use a personal Google account (company accounts often block apps they haven't approved).
@@ -24,13 +24,14 @@ Everything here is yours: your Google app, your Drive, your player. Use a person
 
 ## Your share player (about 3 minutes)
 
-1. [Create an API key](https://console.cloud.google.com/apis/credentials) (Create credentials, API key). Edit it: API restrictions, Restrict key, tick **Google Drive API**, Save. You can also restrict it to your player's address under Website restrictions.
-2. In your copy on GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**, name `DRIVE_API_KEY`, value: the key. (The key is public by design: every viewer of a share link receives it.)
-3. **Settings → Pages → Source: GitHub Actions.**
-4. **Actions → Player → Run workflow.** After about a minute the player is live at `https://<you>.github.io/<your-copy>/`.
-5. On the setup page, fill in the key and the player address, then **Save and check**.
+1. [Create an API key](https://console.cloud.google.com/apis/credentials) (Create credentials, API key). Edit it: API restrictions, Restrict key, tick **Google Drive API**, Save. You can also restrict it to your player's address under Website restrictions. (The key is public by design: every viewer of a share link receives it.)
+2. Host the player where you prefer:
+   - **Vercel** (copy can be private): [import your copy](https://vercel.com/new), leave the build settings as they are (`vercel.json` sets them), add the environment variable `DRIVE_API_KEY`, Deploy. Use the short address under **Domains**, like `https://your-project.vercel.app`; the long deployment addresses ask viewers to log in. After changing the key: **Deployments → ⋯ → Redeploy**.
+   - **GitHub Pages** (copy must be public): **Settings → Secrets and variables → Actions → Variables**, add `DRIVE_API_KEY`. **Settings → Pages → Source: GitHub Actions.** **Actions → Player → Run workflow.** The address is `https://<you>.github.io/<your-copy>`.
+   - **Anywhere else**: save the key on the setup page, run `npm run build:viewer` in `server`, upload the `viewer-site` folder (for example to [Netlify Drop](https://app.netlify.com/drop)).
+3. On the setup page, pick the same host, fill in the key and the player address, then **Save and check**.
 
-The player rebuilds by itself whenever its files change in your copy.
+Vercel and GitHub Pages rebuild the player whenever you push to your copy.
 
 ## Without the setup page
 

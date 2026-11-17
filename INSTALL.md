@@ -12,7 +12,8 @@ You end up with your own copy of BugSnap: your own Google app, your own Drive, y
 | --- | --- |
 | Windows 10 or 11 | BugSnap runs a small helper program in the background |
 | Chrome, Brave or Edge | For the extension |
-| A GitHub account | To make your own copy and host your share player (free) |
+| A GitHub account | To make your own copy (free) |
+| A Vercel account *(optional)* | One free place to host your share player. GitHub Pages or any other host works too |
 | A Google account *(optional)* | Only if you want share links. A **personal** account works best: company accounts often block new apps |
 
 You do **not** need to install Node.js, ffmpeg or anything else yourself. Setup does it.
@@ -23,7 +24,7 @@ You do **not** need to install Node.js, ffmpeg or anything else yourself. Setup 
 
 1. Open the BugSnap page on GitHub and click **Use this template → Create a new repository**.
 2. Give it a name, for example `bugsnap`.
-3. Choose **Public**. Free GitHub Pages (your share player) needs this. Your recordings are never stored in the repository, only the player's code.
+3. Choose **Private** or **Public**. Private works with Vercel; GitHub Pages needs **Public** (see step 4c). Your recordings are never stored in the repository.
 4. Click **Create repository**.
 
 ## Step 2. Download it
@@ -77,14 +78,44 @@ Paste the **client ID** and **client secret** on the setup page and click **Save
 
 ### 4c. Your share player (about 3 minutes)
 
-The player is the web page that opens when someone clicks a share link. It runs free on your GitHub copy.
+The player is the web page that opens when someone clicks a share link. You host it yourself, for free, wherever you prefer.
 
-1. **Create an API key** in Google Cloud: Create credentials → API key. Then edit it: **API restrictions → Restrict key → Google Drive API → Save**.
-2. On your GitHub copy: **Settings → Secrets and variables → Actions → Variables tab → New repository variable**.
+First, **create an API key** in Google Cloud: Create credentials → API key. Then edit it: **API restrictions → Restrict key → Google Drive API → Save**.
+
+Then pick one place for the player. The setup page shows the steps for the one you click.
+
+| | Vercel | GitHub Pages | Somewhere else |
+| --- | --- | --- | --- |
+| Cost | Free (Hobby plan) | Free | Depends on the host |
+| Your GitHub copy | Can be private | Must be public | Either |
+| Updates | Automatic on every push | Automatic on every push | You upload again |
+| Address | `your-project.vercel.app` | `your-name.github.io/your-copy` | Whatever your host gives |
+
+#### Option A: Vercel
+
+1. Go to [vercel.com/new](https://vercel.com/new) and sign in with GitHub.
+2. **Import** your BugSnap copy. Not in the list? Click **Adjust GitHub App Permissions** and give Vercel access to it.
+3. Leave the build settings as they are (BugSnap's `vercel.json` fills them in). Open **Environment Variables** and add:
    Name: `DRIVE_API_KEY`. Value: the key.
-3. **Settings → Pages → Source: GitHub Actions.**
-4. **Actions tab → Player → Run workflow.** Wait about a minute until it shows a green tick.
-5. Back on the setup page, paste the key, check the player address (it's usually filled in for you: `https://<you>.github.io/<your-copy>/`) and click **Save and check**.
+4. Click **Deploy** and wait about a minute.
+5. On the project page, copy the address under **Domains**: the short one, like `https://your-project.vercel.app`. (Not the long deployment address with random letters: that one asks viewers to log in.)
+
+#### Option B: GitHub Pages
+
+1. On your GitHub copy: **Settings → Secrets and variables → Actions → Variables tab → New repository variable**.
+   Name: `DRIVE_API_KEY`. Value: the key.
+2. **Settings → Pages → Source: GitHub Actions.** (Your copy must be public for this on a free account.)
+3. **Actions tab → Player → Run workflow.** Wait about a minute until it shows a green tick.
+4. Your address is `https://<your-name>.github.io/<your-copy>`. The setup page fills it in for you.
+
+#### Option C: Somewhere else (Netlify, Cloudflare Pages, your own server)
+
+1. Paste your key on the setup page and click **Save and check** (the check fails for now, that's fine).
+2. Open a terminal in the `server` folder and run `npm run build:viewer`. It makes a `viewer-site` folder next to `server`.
+3. Upload that folder to your host. The easiest: drag it onto [Netlify Drop](https://app.netlify.com/drop).
+4. Copy the address your host gives you. It must start with `https://`.
+
+**Finally**, back on the setup page: pick the same option, paste the key and the address, and click **Save and check**. It says **Player is live** when everything is right.
 
 ## Step 5. Add the extension to your browser
 
@@ -137,7 +168,9 @@ Tokens stay on your computer. They are never sent to the browser or to anyone el
 | Setup says **port 4800 is in use** | Another program uses that port. Close it, or restart the laptop and run setup again. |
 | The extension says it **can't reach BugSnap** | Run `setup.cmd` again. It restarts the background helper. The log is in `server\data\server.log`. |
 | Google says **access blocked** | Use a personal Google account, and check step 4b.5 (publish the app). |
-| A share link shows **"Can't load this recording"** | Check the player variable and Pages setting in step 4c, then run the Player workflow again. |
+| A share link shows **"Can't load this recording"** | Check `DRIVE_API_KEY` where your player lives (step 4c). After changing it, rebuild: Vercel **Deployments → ⋯ → Redeploy**; GitHub **Actions → Player → Run workflow**; other hosts: build and upload again. |
+| A share link asks people to **log in to Vercel** | You used a deployment address. Use the short address under **Domains** on the setup page. |
+| The player build fails with **DRIVE_API_KEY is not set** | Vercel: add it in **Settings → Environment Variables**, then redeploy. GitHub: add the repository variable, then run the Player workflow. |
 | Nothing happens on **Alt+Shift+S** | Another app uses the shortcut. Change it at `chrome://extensions/shortcuts`. |
 
 To check everything without changing anything, open a terminal in the folder and run:

@@ -3,3 +3,5 @@ server/data/
 .env
 *.log
 viewer-site/
+_site/
+.vercel/

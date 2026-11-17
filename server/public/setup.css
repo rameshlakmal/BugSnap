@@ -33,6 +33,15 @@ body { background: var(--bg); }
 .choice > span:not(.ch-icon):not(.tag) { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
 .ch-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-2); color: var(--text); margin-bottom: 6px; }
 .ch-icon svg { width: 22px; height: 22px; fill: currentColor; }
+.choices.three { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 20px; max-width: 760px; }
+.choice.sm { padding: 16px; gap: 4px; border-radius: 16px; }
+.choice.sm .ch-icon { width: 34px; height: 34px; border-radius: 10px; margin-bottom: 4px; }
+.choice.sm .ch-icon svg { width: 19px; height: 19px; }
+.choice.sm strong { font-size: 15px; }
+.choice.sm > span:not(.ch-icon) { font-size: 13px; }
+.sub { font-size: 15px; font-weight: 700; margin: 4px 0 12px; }
+.todo.host { counter-reset: t 1; }
+.gh-link.disabled { opacity: .5; cursor: not-allowed; }
 .tag { position: absolute; top: 18px; right: 18px; font-size: 11.5px; font-weight: 700; padding: 4px 8px; border-radius: var(--r-pill); background: var(--brand-soft); color: var(--brand); }
 
 .todo { list-style: none; counter-reset: t; margin: 0 0 24px; padding: 0; display: grid; gap: 8px; max-width: 760px; }
@@ -83,7 +92,9 @@ body { background: var(--bg); }
   .rail .theme-toggle { display: none; }
   .pane { margin: 12px 16px 16px; padding: 24px 20px; min-height: 0; }
   .choices, .form-grid { grid-template-columns: 1fr; }
+  .choices.three { grid-template-columns: 1fr; gap: 8px; }
+  .choice.sm { grid-template-columns: 34px minmax(0, 1fr); column-gap: 12px; padding: 12px 14px; }
+  .choice.sm .ch-icon { grid-row: span 2; margin: 0; }
   .todo li { grid-template-columns: 26px minmax(0, 1fr); }
   .todo li > .btn { grid-column: 2; justify-self: start; }
 }
-.gh-link.disabled { opacity: .5; cursor: not-allowed; }

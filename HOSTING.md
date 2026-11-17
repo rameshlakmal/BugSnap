@@ -1,7 +1,7 @@
 # Hosting BugSnap on a server
 
 Run the BugSnap server on an always-on machine (for example an Oracle Cloud Always Free VM) so you
-don't need to keep it running on your computer. The public player on GitHub Pages stays the same.
+don't need to keep it running on your computer. Your public share player stays where it is.
 
 What you end up with:
 

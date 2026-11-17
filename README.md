@@ -129,13 +129,13 @@ Everything is on one page, opened from the gear in the extension: your name, ser
 flowchart LR
     A["🧩 Extension<br/>record · screenshot"] -->|video + logs| B["🖥️ Local server<br/>ffmpeg · AI · GitHub"]
     B -->|upload, anyone with link| C["☁️ Google Drive"]
-    D["🌐 Public player<br/>GitHub Pages"] -->|streams from| C
+    D["🌐 Public player<br/>Vercel · GitHub Pages"] -->|streams from| C
     E["👀 Anyone with the link"] --> D
 ```
 
 1. The **extension** records the video and everything happening on the page.
 2. The **BugSnap server** (on your computer, or hosted for your team) makes the video seekable, builds the thumbnail and uploads it to **your Google Drive**.
-3. The **share link** opens a static player on GitHub Pages that streams straight from Drive. People watching don't need the server or an account.
+3. The **share link** opens a static player you host (Vercel, GitHub Pages or anywhere else) that streams straight from Drive. People watching don't need the server or an account.
 
 Your API keys and tokens stay on the server, in `server/data`. They are never sent to the browser or to the public player.
 
@@ -151,7 +151,7 @@ BugSnap is a template: you make your own copy and fill it with your own Google a
 
 **1. Make your copy**
 
-On GitHub, click **Use this template → Create a new repository**. Make it **public** (free GitHub Pages need that; your recordings are never stored in it). Then download your copy to your computer (**Code → Download ZIP**, or `git clone`).
+On GitHub, click **Use this template → Create a new repository**. Private works if you host the player on Vercel; GitHub Pages needs it public. Your recordings are never stored in it. Then download your copy to your computer (**Code → Download ZIP**, or `git clone`).
 
 **2. Run `setup.cmd`**
 
@@ -163,7 +163,7 @@ Double-click `setup.cmd` in the folder. It installs Node.js and ffmpeg if they a
 
 1. **Where recordings go:** your Google Drive, or only this computer (nothing to set up).
 2. **Your Google app:** create it in Google Cloud and paste its client ID and secret. About 5 minutes.
-3. **Your share player:** add your API key to your GitHub copy, turn on Pages, run the **Player** action. Share links then open `https://<you>.github.io/<your-copy>/`.
+3. **Your share player:** host it free where you prefer. **Vercel**: import your copy, add `DRIVE_API_KEY`, Deploy. **GitHub Pages**: add the `DRIVE_API_KEY` variable, turn on Pages, run the **Player** action. **Anywhere else**: `npm run build:viewer` and upload the folder. [Step-by-step](INSTALL.md#4c-your-share-player-about-3-minutes).
 4. **The extension:** `chrome://extensions` → Developer mode → **Load unpacked** → the `extension` folder (the setup page copies the path for you).
 
 **4. Record your first bug**
@@ -183,7 +183,7 @@ In the extension's Settings (the gear):
 
 - Mark the repository as a template once: **Settings → General → Template repository**.
 - Keep personal things out of the code: your Google app, API key, player address and tokens live in `server/data` and `server/.env`, which git ignores.
-- The **Player** workflow (`.github/workflows/player.yml`) skips publishing until a copy has a `DRIVE_API_KEY` variable, so it stays quiet in the template itself.
+- The share player builds with `node server/scripts/build-viewer.js _site`, on Vercel from `vercel.json` or on GitHub Pages from `.github/workflows/player.yml`. The workflow skips publishing until a copy has a `DRIVE_API_KEY` variable, so it stays quiet in the template itself.
 - Tests: `npm run smoke` (needs a running server), `npm run test:drive`, `npm run test:integrations`.
 
 </details>
@@ -233,7 +233,7 @@ All optional.
 | `HOST` | `127.0.0.1` | Only this computer can reach the server. Use `0.0.0.0` to accept other machines, and set `UPLOAD_TOKEN`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | empty | Google Drive sign-in (see [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md)) |
 | `DRIVE_API_KEY` | empty | Key the public player uses; only needed for `npm run build:viewer` |
-| `VIEWER_URL` | empty | Your GitHub Pages player, e.g. `https://you.github.io/bugsnap-viewer` |
+| `VIEWER_URL` | empty | Your share player, e.g. `https://your-project.vercel.app` or `https://you.github.io/bugsnap` |
 | `DRIVE_FOLDER_NAME` | `BugSnap` | Drive folder for uploads |
 | `PUBLIC_BASE_URL` | `http://localhost:PORT` | Base for local share links |
 | `UPLOAD_TOKEN` | empty | Shared secret the extension must send to upload (older setup; hosted servers use sign-in and access keys instead) |
@@ -272,7 +272,7 @@ server/                  Node + Express
   src/github.js          GitHub issues and project boards
   src/media.js           ffmpeg: seekable video, thumbnails and trimming
   public/                player, recordings grid
-  scripts/build-viewer.js  builds the public player for GitHub Pages
+  scripts/build-viewer.js  builds the public share player
   scripts/user.js        add people, passwords and access keys (npm run user)
   deploy/                setup and update scripts for hosting on Ubuntu
   test/                  end-to-end and Drive tests

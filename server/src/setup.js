@@ -6,7 +6,8 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const FIELDS = ['googleClientId', 'googleClientSecret', 'driveApiKey', 'viewerUrl', 'githubRepo', 'storage', 'finished'];
+const FIELDS = ['googleClientId', 'googleClientSecret', 'driveApiKey', 'viewerUrl', 'githubRepo', 'playerHost', 'storage', 'finished'];
+const HOSTS = ['vercel', 'github', 'other'];
 
 const clean = (v, max = 400) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -41,6 +42,7 @@ export class SetupStore {
       if (!(key in patch)) continue;
       if (key === 'finished') this.saved.finished = Boolean(patch.finished);
       else if (key === 'storage') this.saved.storage = patch.storage === 'local' ? 'local' : 'drive';
+      else if (key === 'playerHost') this.saved.playerHost = HOSTS.includes(patch.playerHost) ? patch.playerHost : '';
       else if (key === 'viewerUrl') {
         const url = clean(patch.viewerUrl).replace(/\/+$/, '');
         if (url && !/^https:\/\/[^\s/]+(\/[^\s]*)?$/i.test(url)) throw Object.assign(new Error('The player address must start with https://'), { status: 400 });
@@ -66,41 +68,78 @@ export class SetupStore {
       driveApiKey: key, // public by design: it ships inside the player
       viewerUrl: this.get('viewerUrl'),
       githubRepo: this.saved.githubRepo || '',
+      playerHost: this.saved.playerHost || guessHost(this.get('viewerUrl')),
       extensionFolder: path.join(repoRoot, 'extension'),
     };
   }
 }
 
-/** https://<owner>.github.io/<repo> from this folder's git remote, when it is a GitHub copy. */
+/** Which host an existing player address points at, for people who set it up before choosing. */
+function guessHost(url) {
+  if (!url) return null;
+  if (/\.vercel\.app(\/|$)/i.test(url)) return 'vercel';
+  if (/\.github\.io(\/|$)/i.test(url)) return 'github';
+  return 'other';
+}
+
+/** owner/repo from this folder's git remote, when it is a GitHub copy, and its GitHub Pages address. */
 export function guessPlayerUrl() {
   return new Promise((resolve) => {
     execFile('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot, timeout: 3000, windowsHide: true }, (err, out) => {
       const m = !err && /github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\s*$/i.exec(String(out));
       if (!m) return resolve({ url: null, repo: null });
       const [, owner, repo] = m;
-      const host = `${owner.toLowerCase()}.github.io`;
-      resolve({ url: repo.toLowerCase() === host ? `https://${host}` : `https://${host}/${repo}`, repo: `${owner}/${repo}` });
+      const pages = `${owner.toLowerCase()}.github.io`;
+      resolve({ url: repo.toLowerCase() === pages ? `https://${pages}` : `https://${pages}/${repo}`, repo: `${owner}/${repo}` });
     });
   });
 }
 
+// What to do on each host when the player is missing or has an old key.
+const FIX = {
+  vercel: {
+    reach: 'Check it, and that the deployment on Vercel finished.',
+    missing: "Not published yet, or that isn't the player's address. Check the deployment on Vercel finished.",
+    key: 'On Vercel: Settings, Environment Variables, update DRIVE_API_KEY, then Deployments, Redeploy.',
+  },
+  github: {
+    reach: 'Check it, and that GitHub Pages is turned on.',
+    missing: 'Not published yet. Run the Player action in your GitHub copy (it takes about a minute).',
+    key: 'Update the DRIVE_API_KEY variable in your GitHub copy and run the Player action again.',
+  },
+  other: {
+    reach: 'Check it, and that the upload finished.',
+    missing: "Not published yet, or that isn't the player's address. Check the upload.",
+    key: 'Run npm run build:viewer again and upload the new viewer-site folder.',
+  },
+};
+
 /**
  * Is the player published, and does it carry this API key? Reads <player>/config.js, which the
- * GitHub Action writes. Returns { ok, message }.
+ * player build writes. Returns { ok, message }.
  */
-export async function checkPlayer(viewerUrl, apiKey) {
+export async function checkPlayer(viewerUrl, apiKey, host) {
+  const fix = FIX[host] || FIX[guessHost(viewerUrl)] || FIX.other;
   if (!viewerUrl) return { ok: false, message: 'Add the player address first.' };
   let res;
   try {
     res = await fetch(`${viewerUrl.replace(/\/+$/, '')}/config.js`, { signal: AbortSignal.timeout(10000), cache: 'no-store' });
   } catch {
-    return { ok: false, message: "Can't reach that address. Check it, and that GitHub Pages is turned on." };
+    return { ok: false, message: `Can't reach that address. ${fix.reach}` };
   }
-  if (res.status === 404) return { ok: false, message: 'Not published yet. Run the Player action in your GitHub copy (it takes about a minute).' };
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      message: /\.vercel\.app/i.test(viewerUrl)
+        ? 'That address asks viewers to log in to Vercel. Use the short address under Domains (your-project.vercel.app), not a deployment address.'
+        : 'That address asks viewers to log in. The player has to be public.',
+    };
+  }
+  if (res.status === 404) return { ok: false, message: fix.missing };
   if (!res.ok) return { ok: false, message: `The player answered with an error (${res.status}).` };
   const text = await res.text();
   const m = /"driveApiKey"\s*:\s*"([^"]*)"/.exec(text);
   if (!m) return { ok: false, message: "That address doesn't look like a BugSnap player." };
-  if (apiKey && m[1] !== apiKey) return { ok: false, message: 'The player uses a different API key. Update DRIVE_API_KEY in your GitHub copy and run the Player action again.' };
+  if (apiKey && m[1] !== apiKey) return { ok: false, message: `The player uses a different API key. ${fix.key}` };
   return { ok: true, message: 'Player is live.' };
 }

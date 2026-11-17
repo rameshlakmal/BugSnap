@@ -32,7 +32,7 @@ export const config = {
     // Hosted server with a Web OAuth client: e.g. https://bugsnap.example.com/auth/google/callback
     redirectUri: process.env.GOOGLE_REDIRECT_URI || '',
   },
-  // Public player on GitHub Pages, e.g. https://you.github.io/bugsnap-viewer
+  // Public share player, e.g. https://your-project.vercel.app
   viewerUrl: process.env.VIEWER_URL || '',
   // Browser API key the public player uses to read shared files (only needed to build it).
   driveApiKey: process.env.DRIVE_API_KEY || '',
