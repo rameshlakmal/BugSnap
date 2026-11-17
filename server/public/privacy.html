@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BugSnap Privacy</title>
+    <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
+    <script src="theme.js"></script>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      body { margin: 0; background: var(--bg); color: var(--text); font: 400 15.5px/1.65 var(--font); }
+      main { max-width: 680px; margin: 0 auto; padding: 48px 16px 64px; }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+      header img { width: 32px; height: 32px; }
+      header strong { font-size: 18px; }
+      h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; }
+      h2 { font-size: 18px; margin: 32px 0 6px; }
+      p, ul { margin: 0 0 12px; }
+      ul { padding-left: 20px; }
+      .muted { color: var(--muted); font-size: 14px; }
+      a { color: var(--text); text-underline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><img src="logo.svg" alt="" /><strong>BugSnap</strong></header>
+      <h1>Privacy policy</h1>
+      <p class="muted">Last updated 16 November 2026</p>
+
+      <p>BugSnap is a personal bug-reporting tool. It records a browser tab or takes a screenshot, and helps write a bug report. Each person runs BugSnap on their own computer, with their own Google account.</p>
+
+      <h2>What BugSnap accesses in your Google account</h2>
+      <p>BugSnap asks for one permission: <strong>Google Drive, only files BugSnap creates</strong> (the <code>drive.file</code> scope). It cannot see, read or change any other file in your Drive.</p>
+      <ul>
+        <li>It creates a "BugSnap" folder and saves your recordings and screenshots there.</li>
+        <li>It sets those files to "anyone with the link" so the links you share can be opened.</li>
+        <li>It reads your email address only to show which account is connected.</li>
+      </ul>
+
+      <h2>Where your data goes</h2>
+      <ul>
+        <li>Recordings, screenshots and their details stay on your computer and in your own Google Drive.</li>
+        <li>Nothing is sent to the people who make BugSnap. There is no BugSnap server, tracking or analytics.</li>
+        <li>The sign-in token is saved only on your computer.</li>
+        <li>If you choose to, BugSnap sends a report's text to the AI provider you set up (for example Anthropic or OpenAI), or creates an issue on GitHub with your own token.</li>
+      </ul>
+
+      <h2>This player</h2>
+      <p>This page plays shared recordings straight from Google Drive in your browser. It does not store or log what you watch.</p>
+
+      <h2>Removing your data</h2>
+      <p>Delete recordings in BugSnap or from the BugSnap folder in Google Drive. Disconnect Google Drive in BugSnap Settings, or remove access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+
+      <p>BugSnap's use of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+      <h2>Contact</h2>
+      <p>This player is run by the person who shared the link with you, from their own copy of BugSnap. Ask them about the recording or to have it removed.</p>
+    </main>
+  </body>
+</html>

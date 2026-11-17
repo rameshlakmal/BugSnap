@@ -28,8 +28,8 @@ If you have a domain, point an `A` record at the server's IP and use that name i
 SSH into the server, then:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rameshlakmal/BugSnap/master/server/deploy/setup.sh -o setup.sh
-bash setup.sh 129-154-10-20.sslip.io
+curl -fsSL https://raw.githubusercontent.com/<your-github-name>/<your-copy>/master/server/deploy/setup.sh -o setup.sh
+REPO=https://github.com/<your-github-name>/<your-copy>.git bash setup.sh 129-154-10-20.sslip.io
 ```
 
 It installs Node 22, ffmpeg and Caddy, downloads BugSnap to `/opt/bugsnap/app`, keeps data in
@@ -56,7 +56,7 @@ This keeps your Google Drive connection, GitHub token, AI settings and all recor
 
 ```bash
 cd /opt/bugsnap/app/server
-sudo -u bugsnap npm run user add ramesh        # asks for a password, prints an access key
+sudo -u bugsnap npm run user add jane          # asks for a password, prints an access key
 sudo systemctl restart bugsnap
 ```
 

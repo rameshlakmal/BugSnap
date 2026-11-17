@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Set up BugSnap</title>
+    <link rel="icon" href="/logo.svg?v=3" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png?v=3" type="image/png" sizes="32x32" />
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/setup.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand"><img src="/logo.svg?v=3" alt="" /><strong>BugSnap</strong></div>
+        <p class="rail-sub">Set up takes about 10 minutes, once. Everything is saved as you go.</p>
+        <ol class="steps" id="steps">
+          <li data-step="storage"><span class="num">1</span><span class="label">Where recordings go</span></li>
+          <li data-step="google" data-drive><span class="num">2</span><span class="label">Your Google app</span></li>
+          <li data-step="player" data-drive><span class="num">3</span><span class="label">Your share player</span></li>
+          <li data-step="extension"><span class="num">4</span><span class="label">Browser extension</span></li>
+          <li data-step="done"><span class="num">5</span><span class="label">Done</span></li>
+        </ol>
+        <button class="btn ghost icon-only sm theme-toggle" type="button" data-theme-toggle data-tip="Theme"><span class="icon"></span></button>
+      </aside>
+
+      <main class="pane">
+        <!-- 1. Storage -->
+        <section class="view" data-view="storage" hidden>
+          <h1>Where should recordings go?</h1>
+          <p class="lead">You can change this later.</p>
+          <div class="choices" role="radiogroup" aria-label="Storage">
+            <button type="button" class="choice" data-storage="drive" role="radio">
+              <span class="ch-icon" data-icon="google-drive-logo"></span>
+              <strong>Your Google Drive</strong>
+              <span>Share links anyone can open. Uses your own Google account and app.</span>
+              <span class="tag">Recommended</span>
+            </button>
+            <button type="button" class="choice" data-storage="local" role="radio">
+              <span class="ch-icon" data-icon="hard-drives"></span>
+              <strong>Only this computer</strong>
+              <span>Nothing to set up. Links open only on this computer.</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- 2. Google app -->
+        <section class="view" data-view="google" hidden>
+          <h1>Your Google app</h1>
+          <p class="lead">BugSnap uploads to <em>your</em> Drive through a Google app that you own. It can only see the files it creates. Open each link, do the step, come back.</p>
+          <ol class="todo">
+            <li><div><strong>Create a project</strong> named <code>BugSnap</code>.</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/projectcreate"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Turn on the Google Drive API</strong> (check the BugSnap project is selected at the top).</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/apis/library/drive.googleapis.com"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Set up the sign-in screen:</strong> Get started, app name <code>BugSnap</code>, your email, audience <b>External</b>, then Create.</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/auth/overview"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Add the Drive permission:</strong> Data Access, Add or remove scopes, paste this in "Manually add scopes", then Update and Save.<span class="copyline"><code id="scope">https://www.googleapis.com/auth/drive.file</code><button type="button" class="btn ghost icon-only sm" data-copy="scope" data-tip="Copy"><span class="icon" data-icon="copy"></span></button></span></div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/auth/scopes"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li class="important"><div><strong>Publish the app:</strong> Audience, Publish app, Confirm. <span class="why">Skip this and Google signs BugSnap out every 7 days.</span></div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/auth/audience"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Create the sign-in client:</strong> Create client, type <b>Desktop app</b>, name <code>BugSnap</code>, Create. Copy the two values below.</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/auth/clients/create"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+          </ol>
+          <div class="form-grid">
+            <div class="field"><label for="clientId">Client ID</label><input id="clientId" type="text" autocomplete="off" spellcheck="false" placeholder="1234-abc.apps.googleusercontent.com" /></div>
+            <div class="field"><label for="clientSecret">Client secret</label><input id="clientSecret" type="password" autocomplete="off" spellcheck="false" placeholder="GOCSPX-…" /></div>
+          </div>
+          <div class="status-row">
+            <div class="status" id="googleStatus"></div>
+            <button type="button" class="btn primary" id="connectGoogle"><span class="icon" data-icon="google-drive-logo"></span><span>Save and connect Drive</span></button>
+          </div>
+        </section>
+
+        <!-- 3. Player -->
+        <section class="view" data-view="player" hidden>
+          <h1>Your share player</h1>
+          <p class="lead">Share links open a small player page that streams from your Drive. It runs free on <em>your</em> GitHub Pages, built by your copy of the BugSnap repository.</p>
+          <ol class="todo">
+            <li><div><strong>Create an API key</strong> (Create credentials, API key). Then edit it: API restrictions, Restrict key, tick <b>Google Drive API</b>, Save. Paste it below.</div><a class="btn sm" target="_blank" rel="noopener" href="https://console.cloud.google.com/apis/credentials"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Give the key to your GitHub copy:</strong> New repository variable, name <code>DRIVE_API_KEY</code>, value: your key.<span class="copyline"><code>DRIVE_API_KEY</code><button type="button" class="btn ghost icon-only sm" data-copy-text="DRIVE_API_KEY" data-tip="Copy name"><span class="icon" data-icon="copy"></span></button></span></div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="settings/variables/actions/new"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Turn on GitHub Pages:</strong> Source, <b>GitHub Actions</b>.</div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="settings/pages"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+            <li><div><strong>Publish the player:</strong> Run workflow, Run workflow. It takes about a minute.</div><a class="btn sm gh-link" target="_blank" rel="noopener" data-gh="actions/workflows/player.yml"><span>Open</span><span class="icon" data-icon="arrow-square-out"></span></a></li>
+          </ol>
+          <div class="form-grid">
+            <div class="field"><label for="apiKey">API key</label><input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="AIza…" /></div>
+            <div class="field"><label for="repo">Your GitHub copy</label><input id="repo" type="text" autocomplete="off" spellcheck="false" placeholder="your-name/BugSnap" /></div>
+            <div class="field wide"><label for="viewerUrl">Player address</label><input id="viewerUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://your-name.github.io/BugSnap" /><span class="help" id="viewerHelp">Filled in from your GitHub copy. Change it if you use another address.</span></div>
+          </div>
+          <div class="status-row">
+            <div class="status" id="playerStatus"></div>
+            <button type="button" class="btn" id="savePlayer"><span>Save and check</span></button>
+          </div>
+        </section>
+
+        <!-- 4. Extension -->
+        <section class="view" data-view="extension" hidden>
+          <h1>Add the browser extension</h1>
+          <p class="lead">It records, takes screenshots and talks to this computer's BugSnap.</p>
+          <ol class="todo">
+            <li><div>Open the extensions page: <code>chrome://extensions</code>, <code>brave://extensions</code> or <code>edge://extensions</code>.</div><button type="button" class="btn sm" data-copy-text="chrome://extensions" data-tip="Browsers don't let pages open this link. Paste it in the address bar."><span class="icon" data-icon="copy"></span><span>Copy</span></button></li>
+            <li><div>Turn on <b>Developer mode</b> (top right).</div></li>
+            <li><div>Click <b>Load unpacked</b> and choose this folder:<span class="copyline"><code id="extFolder"></code><button type="button" class="btn ghost icon-only sm" data-copy="extFolder" data-tip="Copy"><span class="icon" data-icon="copy"></span></button></span></div></li>
+            <li><div>Pin BugSnap, click it, then the <b>gear</b>: add your name, an AI provider for bug reports, and the tools you report to (GitHub, Jira, GitLab, Slack, Notion).</div></li>
+          </ol>
+        </section>
+
+        <!-- 5. Done -->
+        <section class="view" data-view="done" hidden>
+          <div class="done">
+            <span class="done-mark" data-icon="check"></span>
+            <h1>You're set</h1>
+            <p class="lead" id="doneText">Click the BugSnap icon on any website and record your first bug. Alt+Shift+S opens the capture bar.</p>
+            <div class="summary" id="summary"></div>
+            <div class="row"><a class="btn primary" href="/"><span class="icon" data-icon="squares-four"></span><span>All recordings</span></a></div>
+          </div>
+        </section>
+
+        <footer class="nav" id="nav">
+          <button type="button" class="btn ghost" id="back"><span class="icon" data-icon="arrow-left"></span><span>Back</span></button>
+          <span class="spacer"></span>
+          <button type="button" class="btn ghost" id="skip">Skip for now</button>
+          <button type="button" class="btn primary" id="next"><span>Continue</span><span class="icon" data-icon="arrow-right"></span></button>
+        </footer>
+      </main>
+    </div>
+    <script src="/icons.js"></script>
+    <script src="/tooltip.js"></script>
+    <script type="module" src="/setup.js"></script>
+  </body>
+</html>

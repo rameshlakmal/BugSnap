@@ -161,10 +161,15 @@
           <div class="report-head">
             <strong id="reportLabel">Draft</strong>
             <span class="spacer"></span>
+            <div class="segmented sm" id="reportMode" role="group" aria-label="Show the report as">
+              <button type="button" data-mode="preview" class="on" data-tip="Formatted">Preview</button>
+              <button type="button" data-mode="markdown" data-tip="Markdown text (edit here)">Markdown</button>
+            </div>
             <button class="btn ghost sm" id="saveReport" data-local-only hidden><span class="icon" data-icon="floppy-disk"></span><span>Save</span></button>
             <button class="btn sm" id="copyReport"><span class="icon" data-icon="copy"></span><span>Copy</span></button>
           </div>
-          <textarea id="report" spellcheck="true" aria-label="Bug report"></textarea>
+          <textarea id="report" spellcheck="true" aria-label="Bug report" hidden></textarea>
+          <div class="md" id="reportView" aria-label="Bug report"></div>
         </div>
       </aside>
     </main>
@@ -295,6 +300,47 @@
               <p class="cr-note" id="crLinkNote"></p>
             </div>
             <div class="cr-gh" id="crGhSlot" hidden></div>
+            <div class="cr-tool" id="crTool" hidden>
+              <div class="cr-tool-setup" id="crToolSetup" hidden>
+                <span class="cr-tool-logo" id="crToolSetupLogo"></span>
+                <p id="crToolSetupText"></p>
+                <button type="button" class="btn primary" id="crToolConnect"><span class="icon" data-icon="plugs-connected"></span><span>Open Settings</span></button>
+              </div>
+              <div class="cr-tool-fields" id="crToolFields">
+                <div class="ask">
+                  <label for="tWhat">What happened?</label>
+                  <textarea id="tWhat" rows="2" placeholder="e.g. I clicked Pay and nothing happened. Any language is fine."></textarea>
+                  <div class="ask-row">
+                    <div class="segmented sm" role="group" aria-label="Report type">
+                      <button type="button" data-tkind="bug" class="on" data-tip="Something is broken">Bug</button>
+                      <button type="button" data-tkind="suggestion" data-tip="Something could be better">Suggestion</button>
+                    </div>
+                    <span class="ai-hint" id="tAiHint"></span>
+                    <span class="spacer"></span>
+                    <button type="button" class="btn primary sm" id="tWrite" data-tip="Claude writes the title and description from your words and the capture"><span class="icon" data-icon="sparkle"></span><span>Write with Claude</span></button>
+                  </div>
+                </div>
+                <p class="cr-where" id="tWhere" hidden></p>
+                <div class="cr-tool-row">
+                  <div class="field" id="tTargetField"><label id="tTargetLabel">Project</label>
+                    <button type="button" class="pick" id="tTarget" aria-haspopup="listbox" aria-labelledby="tTargetLabel"><span class="pick-val"></span><span class="icon caret" data-icon="caret-down"></span></button>
+                  </div>
+                  <div class="field" id="tTypeField" hidden><label id="tTypeLabel">Issue type</label>
+                    <button type="button" class="pick" id="tType" aria-haspopup="listbox" aria-labelledby="tTypeLabel"><span class="pick-val"></span><span class="icon caret" data-icon="caret-down"></span></button>
+                  </div>
+                  <div class="field" id="tLabelsField" hidden><label for="tLabels">Labels</label><input id="tLabels" type="text" autocomplete="off" placeholder="bug, checkout" /></div>
+                </div>
+                <div class="field"><label for="tTitle">Title</label><input id="tTitle" type="text" maxlength="250" autocomplete="off" /></div>
+                <div class="field grow"><label for="tBody">Description</label><textarea id="tBody" spellcheck="true"></textarea></div>
+                <div class="alert" id="tAlert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="tAlertText"></span></div>
+              </div>
+              <div class="cr-tool-done" id="crToolDone" hidden>
+                <span class="gh-done-mark"><span class="icon" data-icon="check"></span></span>
+                <strong id="tDoneTitle"></strong>
+                <span class="muted-sm" id="tDoneSub"></span>
+                <div class="row2"><button type="button" class="btn primary" id="tDoneOpen"><span class="icon" data-icon="arrow-square-out"></span><span>Open</span></button><button type="button" class="btn ghost" id="tDoneAgain">Send another</button></div>
+              </div>
+            </div>
           </div>
           <div class="alert" id="crAlert" role="alert" hidden><span class="icon" data-icon="warning-circle"></span><span id="crAlertText"></span></div>
           <div class="cr-foot" id="crFoot">

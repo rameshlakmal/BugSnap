@@ -27,10 +27,19 @@
         <div class="toolbar" role="toolbar" aria-label="Annotation tools">
           <div class="tools" id="tools">
             <button class="tool on" data-tool="arrow" data-tip="Arrow" data-kbd="A"><span class="icon" data-icon="arrow-up-right"></span></button>
-            <button class="tool" data-tool="rect" data-tip="Box" data-kbd="R"><span class="icon" data-icon="square"></span></button>
+            <div class="shape-pick" id="shapePick">
+              <button class="tool shape-btn" data-tool="rect" id="shapeBtn" data-tip="Shapes" aria-haspopup="menu" aria-expanded="false"><span class="icon" id="shapeIcon" data-icon="square"></span><span class="caret" data-icon="caret-down"></span></button>
+              <div class="menu shape-menu" id="shapeMenu" role="menu" aria-label="Shapes" hidden>
+                <button role="menuitemradio" data-shape="rect"><span class="icon" data-icon="square"></span><span class="grow">Rectangle</span><kbd>R</kbd></button>
+                <button role="menuitemradio" data-shape="ellipse"><span class="icon" data-icon="circle"></span><span class="grow">Ellipse</span><kbd>E</kbd></button>
+                <button role="menuitemradio" data-shape="line"><span class="icon" data-icon="line-segment"></span><span class="grow">Line</span><kbd>L</kbd></button>
+                <button role="menuitemradio" data-shape="triangle"><span class="icon" data-icon="triangle"></span><span class="grow">Triangle</span><kbd>G</kbd></button>
+                <button role="menuitemradio" data-shape="darrow"><span class="icon" data-icon="arrows-left-right"></span><span class="grow">Double arrow</span><kbd>D</kbd></button>
+              </div>
+            </div>
             <button class="tool" data-tool="highlight" data-tip="Highlight" data-kbd="H"><span class="icon" data-icon="highlighter-circle"></span></button>
             <button class="tool" data-tool="pen" data-tip="Draw" data-kbd="P"><span class="icon" data-icon="pen-nib"></span></button>
-            <button class="tool" data-tool="text" data-tip="Text" data-kbd="T"><span class="icon" data-icon="text-t"></span></button>
+            <button class="tool" data-tool="text" data-tip="Text (click a text to edit it)" data-kbd="T"><span class="icon" data-icon="text-t"></span></button>
             <button class="tool" data-tool="number" data-tip="Numbered marker" data-kbd="N"><span class="icon" data-icon="number-circle-one"></span></button>
             <button class="tool" data-tool="blur" data-tip="Blur private info" data-kbd="B"><span class="icon" data-icon="eye-slash"></span></button>
           </div>
@@ -101,7 +110,21 @@
 
     <div class="gh-layer" id="ghLayer" hidden><span class="gh-layer-spin"><span class="icon" data-icon="spinner-gap"></span></span></div>
 
-    <input class="text-input" id="textInput" type="text" hidden />
+    <textarea class="text-input" id="textInput" rows="1" spellcheck="false" aria-label="Text" hidden></textarea>
+    <!-- Style bar for the selected (or edited) text: size, bold, text colour, background -->
+    <div class="text-bar" id="textBar" role="toolbar" aria-label="Text style" hidden>
+      <button class="tb" id="fsDown" data-tip="Smaller" data-kbd="["><span class="icon" data-icon="minus"></span></button>
+      <span class="fs" id="fsVal" data-tip="Font size">24</span>
+      <button class="tb" id="fsUp" data-tip="Larger" data-kbd="]"><span class="icon" data-icon="plus"></span></button>
+      <span class="tdiv"></span>
+      <button class="tb" id="boldBtn" data-tip="Bold" data-kbd="Ctrl+B" aria-pressed="true"><span class="icon" data-icon="text-b"></span></button>
+      <button class="tb pick" id="fgBtn" data-tip="Text colour" aria-haspopup="true"><span class="icon" data-icon="text-a-underline"></span><span class="chip" id="fgChip"></span></button>
+      <button class="tb pick" id="bgBtn" data-tip="Background" aria-haspopup="true"><span class="icon" data-icon="paint-bucket"></span><span class="chip" id="bgChip"></span></button>
+      <span class="tdiv"></span>
+      <button class="tb" id="textEdit" data-tip="Edit text" data-kbd="Enter"><span class="icon" data-icon="pencil-simple"></span></button>
+      <button class="tb danger" id="textDel" data-tip="Delete" data-kbd="Del"><span class="icon" data-icon="trash"></span></button>
+      <div class="swatches" id="swatches" hidden></div>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"><span class="icon" data-icon="check"></span><span id="toastText">Image copied</span></div>
 
     <script src="lib/icons.js"></script>

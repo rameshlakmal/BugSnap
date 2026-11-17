@@ -27,7 +27,7 @@ body { display: grid; grid-template-columns: 248px minmax(0, 1fr); height: 100dv
   border-radius: var(--r-field); border: 1px solid var(--border); background: var(--surface);
   transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
 }
-.lib-search:focus-within { border-color: var(--border-strong); box-shadow: var(--ring); }
+.lib-search:focus-within { border-color: var(--text); box-shadow: none; }
 .lib-search .icon { width: 16px; height: 16px; color: var(--faint); }
 .lib-search input { all: unset; flex: 1; min-width: 0; font: 400 14px/1 var(--font); color: var(--text); }
 .lib-search input::placeholder { color: var(--faint); }
@@ -145,7 +145,7 @@ body.dragging .folders { outline: 1px dashed var(--border-strong); outline-offse
 .menu-input { display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 6px 4px 10px; }
 .menu-input .icon { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .menu-input input { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border-strong); font: 400 14px/1 var(--font); color: var(--text); background: var(--surface); outline: none; }
-.menu-input input:focus { border-color: var(--text); box-shadow: var(--ring); }
+.menu-input input:focus { border-color: var(--text); box-shadow: none; }
 
 /* Moved / error note */
 .lib-toast { position: fixed; left: calc(50% + 124px); bottom: 24px; z-index: 60; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: var(--pill-bg); color: var(--pill-fg); border: 1px solid var(--pill-border); box-shadow: 0 10px 30px rgb(0 0 0 / 0.25); font: 500 13.5px/1.2 var(--font); animation: pill-in .2s var(--ease); max-width: calc(100vw - 300px); }

@@ -9,6 +9,7 @@
   window.addEventListener(REPLACED, () => {
     retired = true;
     destroy();
+    document.getElementById('screenrec-area-host')?.remove();
     try {
       chrome.storage.onChanged.removeListener(onStorage);
     } catch {
@@ -90,7 +91,7 @@
       user-select: none; animation: enter .24s cubic-bezier(.16,1,.3,1);
     }
     @keyframes enter { from { opacity: 0; transform: translateY(10px) scale(.98); } }
-    .grip { width: 18px; height: 32px; display: grid; place-items: center; color: rgb(255 255 255 / .35); cursor: grab; border-radius: 6px; }
+    .grip { width: 18px; height: 32px; display: grid; place-items: center; color: rgb(255 255 255 / .35); cursor: grab; border-radius: 6px; touch-action: none; }
     .grip:active { cursor: grabbing; }
     .grip svg { width: 14px; height: 14px; fill: currentColor; }
     .clock { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; padding: 0 10px; min-width: 64px; text-align: center; }
@@ -423,7 +424,30 @@
     });
   }
 
+  // Area recording: a red outline just outside the recorded area (so it is never in the video).
+  let areaHost = null;
+  function syncArea() {
+    const c = rec?.crop;
+    const show = !retired && c && rec.mode === 'tab' && rec.tabId === myTabId && ['countdown', 'recording', 'paused'].includes(rec.status);
+    if (!show) {
+      areaHost?.remove();
+      areaHost = null;
+      return;
+    }
+    if (!areaHost || !areaHost.isConnected) {
+      areaHost = document.createElement('div');
+      areaHost.id = 'screenrec-area-host';
+      const r = areaHost.attachShadow({ mode: 'closed' });
+      r.innerHTML = '<style>:host{all:initial}div{position:fixed;z-index:2147483646;pointer-events:none;border:2px dashed #f2555a;border-radius:6px;box-shadow:0 0 0 1px rgb(255 255 255 / .6)}</style><div></div>';
+      areaHost.frame = r.querySelector('div');
+      (document.body || document.documentElement).append(areaHost);
+    }
+    // 4 px of air keeps the dashes clear of the crop, even after rounding to device pixels.
+    Object.assign(areaHost.frame.style, { left: `${c.x - 6}px`, top: `${c.y - 6}px`, width: `${c.w + 12}px`, height: `${c.h + 12}px`, opacity: rec.status === 'paused' ? '.5' : '1' });
+  }
+
   function render() {
+    syncArea();
     if (retired || !visibleFor(rec)) return destroy(false);
     if (!host || !host.isConnected) build();
     clearInterval(tick);

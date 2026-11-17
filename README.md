@@ -89,7 +89,7 @@ Choose who writes the report:
 
 ### 📸 Screenshots with annotation
 
-Press **Alt+Shift+S**, drag over the area you want, and mark it up: arrows, boxes, highlight, pen, text, numbered markers and blur, in six colours and four thicknesses. Every mark can be moved and resized later.
+Press **Alt+Shift+S** for the capture bar (like the Windows Snipping Tool): pick screenshot or recording, then drag over an area or take the whole page. Open menus and dialogs stay open while you select. Then mark it up: arrows, shapes (rectangle, ellipse, line, triangle, double arrow), highlight, pen, text, numbered markers and blur. Every mark can be moved and resized later, and text can be edited in place with its own size, colour and background.
 
 - **Ctrl+C** copies the annotated image, ready to paste anywhere.
 - Screenshots **save automatically** the moment the editor opens, so you never lose one.
@@ -101,6 +101,10 @@ Press **Alt+Shift+S**, drag over the area you want, and mark it up: arrows, boxe
 
 Choose **GitHub issue** in the dialog after a capture (or **Send to GitHub** in the player). The form is already filled with the preconditions, steps and attachments. Describe the bug and click **Write with Claude** to write the full report. Pick the repository, labels, assignees, milestone and project boards (with their Severity, Priority and other dropdowns), then **Create**. Screenshots and captured frames go into the issue as images, not links, and the issue number shows on the recording so you can find it again.
 
+### 🔌 Jira, GitLab, Slack and Notion
+
+Pick **Jira issue**, **GitLab issue**, **Slack message** or **Notion page** in the same dialog. Write the report with Claude, choose the project or database, and send. Jira and GitLab get the screenshots as attachments; Slack and Notion get the share link. Connect each one in Settings → More tools by pasting a token.
+
 ### 🗂️ All your recordings in one place
 
 Every recording and screenshot lands in **All recordings**, even if you never copied the link. Filter by tab, screen, screenshots or recordings with errors, search with **Ctrl+K**, and hover a card to preview it.
@@ -111,7 +115,7 @@ Group them by project with **folders**: create one with **+** in the sidebar, th
 
 ### ⚙️ Simple settings
 
-Everything is on one page, opened from the gear in the extension: your name, server, Google Drive, AI provider, GitHub and keyboard shortcuts. Changes save as you make them.
+Everything is on one page, opened from the gear in the extension: your name, server, Google Drive, AI provider, GitHub, Jira, GitLab, Slack, Notion and keyboard shortcuts. Changes save as you make them. Your Google app and share player are set on the setup page (`http://localhost:4800/setup`).
 
 <p align="center"><img src="docs/images/settings.png" alt="BugSnap settings page" width="760" /></p>
 
@@ -137,34 +141,65 @@ Your API keys and tokens stay on the server, in `server/data`. They are never se
 
 ## Quick start
 
-**You need:** Node 22.9+, Chrome or Edge 116+, and [ffmpeg](https://ffmpeg.org/download.html) on your PATH (for smooth seeking and thumbnails).
+> **New laptop?** Follow the full step-by-step guide: **[INSTALL.md](INSTALL.md)** (with fixes for common problems).
 
-**1. Start the server**
+BugSnap is a template: you make your own copy and fill it with your own Google app, player and tokens. Nothing is shared with anyone else, including whoever made the template.
+
+**You need:** Windows 10 or 11, Chrome, Brave or Edge, a GitHub account, and a Google account if you want share links.
+
+**1. Make your copy**
+
+On GitHub, click **Use this template → Create a new repository**. Make it **public** (free GitHub Pages need that; your recordings are never stored in it). Then download your copy to your computer (**Code → Download ZIP**, or `git clone`).
+
+**2. Run `setup.cmd`**
+
+Double-click `setup.cmd` in the folder. It installs Node.js and ffmpeg if they are missing, starts BugSnap in the background every time you log in, and opens the setup page. Run it again any time after an update.
+
+**3. Follow the setup page**
+
+`http://localhost:4800/setup` walks you through it with a link for every step:
+
+1. **Where recordings go:** your Google Drive, or only this computer (nothing to set up).
+2. **Your Google app:** create it in Google Cloud and paste its client ID and secret. About 5 minutes.
+3. **Your share player:** add your API key to your GitHub copy, turn on Pages, run the **Player** action. Share links then open `https://<you>.github.io/<your-copy>/`.
+4. **The extension:** `chrome://extensions` → Developer mode → **Load unpacked** → the `extension` folder (the setup page copies the path for you).
+
+**4. Record your first bug**
+
+Click the BugSnap icon on any website, then **Record this tab**. Or press **Alt+Shift+S** for the capture bar: screenshot or recording, of an area or the whole page.
+
+**5. Connect your tools (optional)**
+
+In the extension's Settings (the gear):
+
+- **AI reports:** pick a provider and add a key, or use Claude Code with no key.
+- **GitHub:** a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Issues: Read and write**.
+- **Jira, GitLab, Slack, Notion:** under **More tools**. Each card links to the page that makes the token and takes about a minute.
+
+<details>
+<summary><b>For the template's maintainer</b></summary>
+
+- Mark the repository as a template once: **Settings → General → Template repository**.
+- Keep personal things out of the code: your Google app, API key, player address and tokens live in `server/data` and `server/.env`, which git ignores.
+- The **Player** workflow (`.github/workflows/player.yml`) skips publishing until a copy has a `DRIVE_API_KEY` variable, so it stays quiet in the template itself.
+- Tests: `npm run smoke` (needs a running server), `npm run test:drive`, `npm run test:integrations`.
+
+</details>
+
+<details>
+<summary><b>Manual setup (without setup.cmd)</b></summary>
 
 ```bash
 cd server
 npm install
-cp .env.example .env   # optional settings
-npm start              # http://localhost:4800
+npm start              # http://localhost:4800, then open /setup
 ```
 
-**2. Load the extension**
+Background start on Windows: `powershell -ExecutionPolicy Bypass -File server\scripts\windows\install-autostart.ps1` (add `-Restart` after updates, `-Uninstall` to turn it off). Log: `server\data\server.log`.
 
-1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
-2. Click **Load unpacked** and pick the `extension` folder.
-3. Pin BugSnap, click it, then the **gear** to open Settings and add your name.
+</details>
 
-**3. Record your first bug**
-
-Click the BugSnap icon on any website, then **Record this tab**. Stop with the control bar or **Alt+Shift+X**.
-
-**4. Optional extras**
-
-- **Shareable links:** connect Google Drive by following [SETUP-GOOGLE-DRIVE.md](SETUP-GOOGLE-DRIVE.md). Without it, recordings stay on your computer.
-- **AI reports:** Settings → AI reports. Pick a provider and add a key, or use Claude Code with no key.
-- **GitHub:** Settings → GitHub. Paste a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with **Issues: Read and write** on your bug repositories (add **Projects: Read and write** to use project boards).
-
-> After pulling changes, restart the server and click the reload icon on the BugSnap card in `chrome://extensions`.
+> After updating, run `setup.cmd` again (it restarts the server) and click the reload icon on the BugSnap card in `chrome://extensions`.
 
 ### Host it for your team
 
@@ -176,7 +211,7 @@ Run the server on an always-on machine (for example a free Oracle Cloud VM) so y
 |---|---|
 | **Alt+Shift+X** | Stop recording |
 | **Alt+Shift+P** | Pause or resume |
-| **Alt+Shift+S** | Take a screenshot |
+| **Alt+Shift+S** | Capture bar: screenshot or recording, area or whole page |
 | **Ctrl+C** (in the editor) | Copy the annotated screenshot |
 | **S** (in the player) | Capture the current frame as a screenshot |
 | **Ctrl+K** (in Recordings) | Search |

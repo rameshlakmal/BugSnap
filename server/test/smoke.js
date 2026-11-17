@@ -69,7 +69,7 @@ const events = [
   { type: 'navigation', ts: at(0), url: 'https://example.com/', title: 'Example', transition: 'start', text: 'Starts on the "Example" page' },
   { type: 'action', ts: at(1.5), action: 'click', text: 'Clicks the "Pricing" link', role: 'link', name: 'Pricing', selector: 'nav > a:nth-of-type(2)' },
   { type: 'navigation', ts: at(2), url: 'https://example.com/pricing', title: 'Pricing – Example', transition: 'link', text: 'Navigates to the "Pricing – Example" page' },
-  { type: 'action', ts: at(4), action: 'input', text: 'Types "ramesh@example.com" into the "Email" field', role: 'field', name: 'Email', selector: '#email' },
+  { type: 'action', ts: at(4), action: 'input', text: 'Types "jane@example.com" into the "Email" field', role: 'field', name: 'Email', selector: '#email' },
   { type: 'action', ts: at(5), action: 'click', text: 'Clicks the "Start trial" button', role: 'button', name: 'Start trial', selector: 'form > button' },
   { type: 'network', ts: at(5.6), startedAt: at(5.1), via: 'fetch', method: 'POST', url: 'https://api.example.com/trials', status: 500, statusText: 'Internal Server Error', durationMs: 480, responseBody: '{"error":"plan_id missing"}' },
   { type: 'console', ts: at(5.7), level: 'error', message: 'TypeError: Cannot read properties of undefined (reading \'id\')', source: 'https://example.com/app.js:120:14' },

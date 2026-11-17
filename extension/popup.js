@@ -120,7 +120,7 @@ async function render() {
 
 async function start(mode) {
   showError('');
-  const buttons = [$('recTab'), $('recDesktop')];
+  const buttons = [$('recTab'), $('recArea'), $('recDesktop')];
   buttons.forEach((b) => (b.disabled = true));
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -154,15 +154,18 @@ function openLast() {
 
 $('recTab').addEventListener('click', () => start('tab'));
 $('recDesktop').addEventListener('click', () => start('desktop'));
-$('snap').addEventListener('click', async () => {
+// Both open the capture bar on the page (snip.js): screenshot mode, or record mode for an area.
+async function openBar(mode) {
   showError('');
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) return showError('No active tab.');
   if (!/^https?:|^file:/.test(tab.url || '')) return showError("This page can't be captured. Open a website first.");
   // Close first so the panel is not in the picture; the background captures a moment later.
-  send({ type: 'snap:start', tabId: tab.id }).catch(() => {});
+  send({ type: 'snap:start', tabId: tab.id, mode }).catch(() => {});
   closeUi();
-});
+}
+$('snap').addEventListener('click', () => openBar('shot'));
+$('recArea').addEventListener('click', () => openBar('rec'));
 $('pause').addEventListener('click', () => send({ type: 'control', action: 'toggle-pause' }).catch((e) => showError(e.message)));
 $('stop').addEventListener('click', () => send({ type: 'control', action: 'stop' }).catch((e) => showError(e.message)));
 

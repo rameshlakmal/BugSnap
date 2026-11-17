@@ -1,0 +1,70 @@
+# Builds the public BugSnap player and publishes it on this repository's GitHub Pages.
+# Share links open it at https://<your-github-name>.github.io/<this-repo>/?id=...
+#
+# One-time setup in your copy of this repository (the BugSnap setup page links straight here):
+#   1. Settings > Secrets and variables > Actions > Variables > New repository variable:
+#        DRIVE_API_KEY = your Google API key (it is public by design: every viewer receives it)
+#   2. Settings > Pages > Source: GitHub Actions
+#   3. Actions > Player > Run workflow
+# After that it rebuilds by itself whenever the player's files change.
+name: Player
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'server/public/**'
+      - 'server/scripts/build-viewer.js'
+      - '.github/workflows/player.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.key.outputs.ready }}
+    env:
+      DRIVE_API_KEY: ${{ vars.DRIVE_API_KEY || secrets.DRIVE_API_KEY }}
+    steps:
+      - name: Check for the Drive API key
+        id: key
+        run: |
+          if [ -z "$DRIVE_API_KEY" ]; then
+            echo "::warning title=Player not published yet::Add a repository variable named DRIVE_API_KEY (Settings > Secrets and variables > Actions > Variables), set Settings > Pages > Source to GitHub Actions, then run this workflow again."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.ready == 'true'
+        with:
+          node-version: 22
+      - name: Build the player
+        if: steps.key.outputs.ready == 'true'
+        run: node server/scripts/build-viewer.js _site
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.key.outputs.ready == 'true'
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -130,7 +130,7 @@ body.resizing video, body.resizing iframe { pointer-events: none; }
 
 .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); flex: none; }
 .search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border-radius: var(--r-field); border: 1px solid var(--border); background: var(--bg); }
-.search:focus-within { border-color: var(--border-strong); box-shadow: var(--ring); }
+.search:focus-within { border-color: var(--text); box-shadow: none; }
 .search .icon { width: 15px; height: 15px; color: var(--faint); }
 .search input { all: unset; flex: 1; min-width: 0; font: 400 13.5px/1 var(--font); color: var(--text); }
 .search input::placeholder { color: var(--faint); }
@@ -211,7 +211,10 @@ details > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); mar
 .ua { font: 11.5px/1.5 var(--mono); color: var(--muted); }
 
 .report { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.ask { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
+.ask { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+/* The field inside the card carries the only border. */
+.ask textarea { border-color: var(--border); }
+.ask textarea:focus { border-color: var(--text); }
 .ask label { font-size: 13px; font-weight: 700; }
 .ask textarea { min-height: 72px; flex: none; font: 400 14px/1.5 var(--font); resize: vertical; background: var(--surface); }
 .ask-row { display: flex; align-items: center; gap: 8px; }
@@ -221,6 +224,30 @@ details > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); mar
 .report-head strong { font-size: 13px; color: var(--muted); font-weight: 600; }
 #writeAi.busy .icon { animation: spin 1.2s linear infinite; }
 #report[readonly] { background: var(--surface); }
+#report[hidden], #reportView[hidden] { display: none; }
+
+/* Report preview: the Markdown drawn as a document */
+.md { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; border-radius: var(--r-field); border: 1px solid var(--border); background: var(--surface); font: 400 14px/1.6 var(--font); color: var(--text); overflow-wrap: anywhere; scrollbar-width: thin; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md h1 { font-size: 19px; line-height: 1.3; margin: 0 0 12px; }
+.md h2 { font-size: 15.5px; margin: 20px 0 6px; }
+.md h3, .md h4, .md h5, .md h6 { font-size: 14px; margin: 16px 0 4px; }
+.md p { margin: 0 0 10px; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0 0; }
+.md a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
+.md a:hover { text-decoration-color: currentColor; }
+.md code { font: 400 12.5px/1.5 var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--surface-2); }
+.md pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); overflow: auto; }
+.md pre code { padding: 0; background: none; white-space: pre; }
+.md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 3px solid var(--border-strong); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+.md img { display: block; max-width: 100%; height: auto; margin: 6px 0; border-radius: 10px; border: 1px solid var(--border); }
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 13px; }
+.md th, .md td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; }
+.md em { color: var(--muted); }
 .report:not([hidden]) { display: flex; }
 .hint { margin: 0; font-size: 13px; color: var(--muted); }
 textarea {
@@ -228,7 +255,7 @@ textarea {
   font: 400 12.5px/1.6 var(--mono); padding: 12px; border-radius: var(--r-field);
   border: 1px solid var(--border-strong); background: var(--bg); color: var(--text);
 }
-textarea:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
+textarea:focus { outline: none; border-color: var(--text); box-shadow: none; }
 
 /* ------------------------------------------------------------ review modal */
 .modal-back { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: var(--overlay); backdrop-filter: blur(3px); animation: fade-in .18s ease-out; }
@@ -245,7 +272,7 @@ textarea:focus { outline: none; border-color: var(--text); box-shadow: var(--rin
 .modal-side .field.grow textarea { flex: 1; }
 .modal-side textarea { min-height: 140px; font-family: var(--font); font-size: 14px; line-height: 1.5; resize: none; }
 .modal-side input[type="text"] { font: 400 14px/1.4 var(--font); height: 40px; padding: 0 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); width: 100%; }
-.modal-side input[type="text"]:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
+.modal-side input[type="text"]:focus { outline: none; border-color: var(--text); box-shadow: none; }
 .linkrow { display: flex; gap: 8px; }
 .linkrow input { flex: 1; min-width: 0; color: var(--muted) !important; background: var(--bg) !important; }
 .modal-foot { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
@@ -275,7 +302,7 @@ textarea:focus { outline: none; border-color: var(--text); box-shadow: var(--rin
 /* Picker trigger: looks like a field, opens a searchable list */
 .pick { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 40px; padding: 0 10px 0 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 500 14px/1 var(--font); transition: border-color .15s var(--ease), background .15s var(--ease); }
 .pick:hover { background: var(--bg); }
-.pick:focus-visible, .pick[aria-expanded="true"] { border-color: var(--text); box-shadow: var(--ring); }
+.pick:focus-visible, .pick[aria-expanded="true"] { border-color: var(--text); box-shadow: none; }
 .pick:disabled { opacity: .55; cursor: default; }
 .pick .pick-val { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
 .pick .pick-val .txt { overflow: hidden; text-overflow: ellipsis; }
@@ -304,7 +331,7 @@ textarea:focus { outline: none; border-color: var(--text); box-shadow: var(--rin
 .pop-head button { all: unset; cursor: pointer; font: 600 12px/1 var(--font); color: var(--muted); padding: 4px 6px; border-radius: 6px; }
 .pop-head button:hover { background: var(--surface-2); color: var(--text); }
 .pop-search { margin: 4px 8px 6px; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border-radius: var(--r-field); border: 1px solid var(--border); background: var(--bg); }
-.pop-search:focus-within { border-color: var(--text); box-shadow: var(--ring); background: var(--surface); }
+.pop-search:focus-within { border-color: var(--text); box-shadow: none; background: var(--surface); }
 .pop-search .icon { width: 15px; height: 15px; color: var(--faint); flex: none; }
 .pop-search input { all: unset; flex: 1; min-width: 0; font: 400 13.5px/1 var(--font); color: var(--text); }
 .pop-list { overflow: auto; max-height: 280px; padding: 2px 6px 6px; scrollbar-width: thin; }
@@ -405,7 +432,7 @@ html.embed #gh { animation: none; }
 @keyframes ft-spin { to { transform: rotate(360deg); } }
 
 /* ------------------------------------------------------------ create dialog (after a capture) */
-.cr { width: min(1480px, 100%); height: min(880px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) 400px; border-radius: 20px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-xl); animation: rise-in .26s var(--ease); }
+.cr { width: min(1480px, 100%); height: min(880px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 33vw, 520px); border-radius: 20px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-xl); animation: rise-in .26s var(--ease); }
 .cr-back.closing .cr { animation: sink-out .18s ease-in forwards; }
 .cr-media { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 22px 16px; background: var(--bg); }
 .cr-x { position: absolute; top: 16px; left: 18px; z-index: 2; width: 40px; height: 40px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
@@ -447,6 +474,11 @@ html.embed #gh { animation: none; }
 .cr-title { all: unset; font: 700 22px/1.3 var(--font); color: var(--text); padding: 6px 0; }
 .cr-title::placeholder, .cr-desc::placeholder { color: var(--faint); }
 .cr-desc { all: unset; flex: 1; min-height: 160px; font: 400 14.5px/1.6 var(--font); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Title and description: no frame until you point at them, then one rounded border (never the browser's square outline). */
+.cr-title, .cr-desc { box-sizing: border-box; margin: 0 -12px; padding: 8px 12px; border: 1px solid transparent; border-radius: 12px; transition: border-color .15s var(--ease), background .15s var(--ease); }
+.cr-desc { padding-top: 10px; }
+.cr-title:hover, .cr-desc:hover { border-color: var(--border); }
+.cr-title:focus, .cr-desc:focus, .cr-title:focus-visible, .cr-desc:focus-visible { outline: none; border-color: var(--text); background: var(--surface); }
 .cr-note { margin: 0; font-size: 12.5px; color: var(--faint); line-height: 1.45; }
 .cr-side > .alert { margin: 0 20px 10px; flex: none; }
 .cr-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid var(--border); }
@@ -593,3 +625,26 @@ html.embed .boot { display: none; }
 .pick.cr-folder.has .pick-val .icon { color: var(--text); }
 .pop-create .name { font-weight: 600; }
 .pop-item.pop-create > .icon { color: var(--text); }
+
+/* Jira, GitLab, Slack, Notion in the create dialog */
+.cr-tool { flex: 1; display: flex; flex-direction: column; }
+.cr-tool[hidden], .cr-tool-fields[hidden], .cr-tool-setup[hidden], .cr-tool-done[hidden] { display: none; }
+.cr-tool-fields { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.cr-tool-fields .field.grow { flex: 1; display: flex; flex-direction: column; min-height: 160px; }
+.cr-tool-fields textarea#tBody { flex: 1; min-height: 160px; resize: none; font: 400 13px/1.55 var(--mono); }
+.cr-tool-fields textarea#tBody.writing { color: var(--faint); background: linear-gradient(90deg, var(--bg) 0%, var(--surface-2) 50%, var(--bg) 100%) 0 0 / 200% 100%; animation: gh-shimmer 1.4s linear infinite; }
+.cr-tool-fields input[type="text"] { font: 400 14px/1.4 var(--font); height: 40px; padding: 0 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); width: 100%; box-sizing: border-box; }
+.cr-tool-fields input[type="text"]:focus { outline: none; border-color: var(--text); }
+.cr-tool-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.cr-tool-row .field[hidden] { display: none; }
+.cr-tool-row:not(:has(.field:not([hidden]))) { display: none; }
+.cr-where { margin: 0; font-size: 13px; color: var(--muted); }
+.cr-tool-setup, .cr-tool-done { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; padding: 24px 8px; }
+.cr-tool-setup p { margin: 0; max-width: 30ch; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.cr-tool-logo { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--surface-2); color: var(--text); }
+.cr-tool-logo .icon { width: 26px; height: 26px; }
+.cr-tool-done strong { font-size: 17px; }
+.cr-tool-done .row2 { display: flex; gap: 8px; margin-top: 6px; }
+.brand-jira { color: #2684ff !important; }
+.brand-gitlab { color: #fc6d26 !important; }
+.brand-slack { color: #e01e5a !important; }

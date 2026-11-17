@@ -14,8 +14,10 @@ function pickMimeType() {
   return candidates.find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
 
-async function getTabStream(streamId) {
-  const constraints = (kind) => ({ mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId, ...(kind === 'video' ? { maxFrameRate: 30 } : {}) } });
+async function getTabStream(streamId, crop) {
+  // For an area, ask for the tab at full device resolution so the crop stays sharp.
+  const sharp = crop ? { maxWidth: Math.min(3840, Math.round(crop.vw * crop.dpr)), maxHeight: Math.min(2160, Math.round(crop.vh * crop.dpr)) } : {};
+  const constraints = (kind) => ({ mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId, ...(kind === 'video' ? { maxFrameRate: 30, ...sharp } : {}) } });
   const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints('audio'), video: constraints('video') });
   let audioContext = null;
   // Capturing a tab mutes it for the user; route the audio back to the speakers.
@@ -24,6 +26,47 @@ async function getTabStream(streamId) {
     audioContext.createMediaStreamSource(stream).connect(audioContext.destination);
   }
   return { stream, audioContext };
+}
+
+/**
+ * Area recording: a video track showing only `crop` (CSS pixels of a vw x vh viewport) of the
+ * tab track. Frames are read with WebCodecs and cut on an OffscreenCanvas, which also works in the
+ * offscreen document where nothing is ever painted.
+ */
+function cropTrack(track, crop) {
+  const processor = new MediaStreamTrackProcessor({ track });
+  const generator = new MediaStreamTrackGenerator({ kind: 'video' });
+  const even = (n) => Math.max(0, Math.floor(n / 2) * 2); // video encoders want even sizes
+  const canvas = new OffscreenCanvas(2, 2);
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const cut = new TransformStream({
+    transform(frame, controller) {
+      try {
+        const vr = frame.visibleRect || { x: 0, y: 0, width: frame.displayWidth, height: frame.displayHeight };
+        // Chrome may letterbox the tab inside the frame; find where the page sits.
+        const scale = Math.min(vr.width / crop.vw, vr.height / crop.vh);
+        const ox = vr.x + (vr.width - crop.vw * scale) / 2;
+        const oy = vr.y + (vr.height - crop.vh * scale) / 2;
+        const x = even(ox + crop.x * scale);
+        const y = even(oy + crop.y * scale);
+        const width = even(Math.min(crop.w * scale, vr.x + vr.width - x));
+        const height = even(Math.min(crop.h * scale, vr.y + vr.height - y));
+        if (width < 2 || height < 2) return;
+        // Copy the area into a frame of its own: MediaRecorder ignores a cropped view (visibleRect)
+        // of the original frame and records black.
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        ctx.drawImage(frame, x, y, width, height, 0, 0, width, height);
+        controller.enqueue(new VideoFrame(canvas, { timestamp: frame.timestamp, duration: frame.duration ?? undefined }));
+      } finally {
+        frame.close();
+      }
+    },
+  });
+  processor.readable.pipeThrough(cut).pipeTo(generator.writable).catch(() => {});
+  return generator;
 }
 
 /** @param {'monitor'|'window'|'browser'} surface preselects that pane in Chrome's picker */
@@ -145,15 +188,22 @@ export class Recorder {
    * Acquire the stream and create the server-side recording. Nothing is recorded yet.
    * @param {{mode:'tab'|'desktop', streamId?:string, surface?:string, includeAudio?:boolean, meta:object, captureLocation:boolean}} opts
    */
-  async prepare({ mode, streamId, surface = 'monitor', includeAudio = true, meta, captureLocation }) {
-    const acquired = mode === 'tab' ? await getTabStream(streamId) : await getDisplayStream(surface, includeAudio);
+  async prepare({ mode, streamId, crop, surface = 'monitor', includeAudio = true, meta, captureLocation }) {
+    const acquired = mode === 'tab' ? await getTabStream(streamId, crop) : await getDisplayStream(surface, includeAudio);
     this.stream = acquired.stream;
     this.audioContext = acquired.audioContext;
     try {
       const video = this.stream.getVideoTracks()[0];
       const settings = video ? video.getSettings() : {};
+      if (crop && video) {
+        // Record the cropped track; keep the source so release() can stop it.
+        this.source = this.stream;
+        this.stream = new MediaStream([cropTrack(video, crop), ...this.source.getAudioTracks()]);
+      }
       const env = await collectEnvironment({ captureLocation });
-      this.env = { ...env, captureSize: { width: settings.width, height: settings.height }, displaySurface: settings.displaySurface };
+      const scale = crop && settings.width ? Math.min(settings.width / crop.vw, settings.height / crop.vh) : 1;
+      const captureSize = crop ? { width: Math.round(crop.w * scale), height: Math.round(crop.h * scale) } : { width: settings.width, height: settings.height };
+      this.env = { ...env, captureSize, displaySurface: settings.displaySurface };
 
       const created = await this.api('POST', '/api/recordings', JSON.stringify({ meta: { ...meta, env: this.env } }), { 'Content-Type': 'application/json' });
       this.id = created.id;
@@ -262,6 +312,7 @@ export class Recorder {
   release() {
     clearTimeout(this.maxTimer);
     this.stream?.getTracks().forEach((t) => t.stop());
+    this.source?.getTracks().forEach((t) => t.stop());
     this.audioContext?.close().catch(() => {});
     this.audioContext = null;
   }

@@ -137,7 +137,8 @@ async function loadDrive() {
       setPill($('drivePill'), 'Not set up');
       navBadge('navDrive', 'warn');
       $('driveHelp').hidden = false;
-      $('driveHelp').innerHTML = 'Add your Google keys to <code>server/.env</code>, then restart the server. The guide is <code>SETUP-GOOGLE-DRIVE.md</code>.';
+      $('driveHelp').textContent = 'Add your own Google app on the setup page. It takes about 10 minutes, once.';
+      actions.append(h('button', { class: 'btn primary sm', onclick: () => chrome.tabs.create({ url: `${server}/setup#storage` }) }, icon('arrow-square-out'), 'Open setup'));
       return;
     }
     if (!d.connected) {
@@ -151,7 +152,7 @@ async function loadDrive() {
     setPill($('drivePill'), 'Connected', 'ok');
     navBadge('navDrive', 'ok');
     $('driveFolder').textContent = `My Drive › ${d.folderName}`;
-    $('driveViewer').textContent = d.viewerUrl || 'Google Drive (set VIEWER_URL for your own player)';
+    $('driveViewer').textContent = d.viewerUrl || "Google Drive's own page (add your player on the setup page)";
     actions.append(
       h('button', {
         class: 'btn sm',
@@ -166,6 +167,7 @@ async function loadDrive() {
           e.currentTarget.disabled = false;
         },
       }, icon('cloud-arrow-up'), 'Upload older recordings'),
+      h('button', { class: 'btn sm', onclick: () => chrome.tabs.create({ url: `${server}/setup#google` }) }, 'Google app and player'),
       h('button', {
         class: 'btn ghost sm',
         onclick: async () => {
@@ -412,6 +414,174 @@ $('ghRemove').addEventListener('click', async () => {
   loadGitHub();
 });
 
+// ---------------------------------------------------------------- Jira, GitLab, Slack, Notion
+// One card each: how to get a token (links straight to the right page), the fields, Connect.
+
+const TOOL_CARDS = [
+  {
+    id: 'jira',
+    name: 'Jira',
+    icon: 'jira-logo',
+    color: '#2684ff',
+    blurb: 'Create Jira issues with the screenshots attached.',
+    steps: [
+      ['Open', 'https://id.atlassian.com/manage-profile/security/api-tokens', 'Atlassian → API tokens', ', click Create API token, name it BugSnap and copy it.'],
+      ['', '', '', 'Paste it below with your Jira address and the email you sign in with.'],
+    ],
+    fields: [
+      { key: 'site', label: 'Jira address', placeholder: 'https://yourteam.atlassian.net', type: 'url' },
+      { key: 'email', label: 'Email', placeholder: 'you@company.com', type: 'email', help: 'Leave empty for Jira Server with a personal access token.' },
+      { key: 'token', label: 'API token', placeholder: 'ATATT…', secret: true },
+    ],
+  },
+  {
+    id: 'gitlab',
+    name: 'GitLab',
+    icon: 'gitlab-logo',
+    color: '#fc6d26',
+    blurb: 'Create GitLab issues with the screenshots uploaded.',
+    steps: [
+      ['Open', 'https://gitlab.com/-/user_settings/personal_access_tokens', 'GitLab → Access tokens', ' (on your own GitLab, the same page under your avatar → Preferences). Add a token named BugSnap with the api scope and copy it.'],
+    ],
+    fields: [
+      { key: 'baseUrl', label: 'GitLab address', placeholder: 'https://gitlab.com', type: 'url', value: 'https://gitlab.com' },
+      { key: 'token', label: 'Access token', placeholder: 'glpat-…', secret: true },
+    ],
+  },
+  {
+    id: 'slack',
+    name: 'Slack',
+    icon: 'slack-logo',
+    color: '#4a154b',
+    blurb: 'Post bug reports to a channel.',
+    steps: [
+      ['Open', 'https://api.slack.com/apps?new_app=1', 'Slack → Create an app', ', From scratch, name it BugSnap and pick your workspace.'],
+      ['', '', '', 'Open Incoming Webhooks, turn it on, click Add New Webhook, choose the channel and Allow.'],
+      ['', '', '', 'Copy the webhook URL and paste it below.'],
+    ],
+    fields: [
+      { key: 'webhook', label: 'Webhook URL', placeholder: 'https://hooks.slack.com/services/…', secret: true },
+      { key: 'channel', label: 'Channel name', placeholder: '#bugs', help: 'Only a label, so you know where it posts.' },
+    ],
+  },
+  {
+    id: 'notion',
+    name: 'Notion',
+    icon: 'notion-logo',
+    color: '#191919',
+    blurb: 'Add bug reports as pages in a Notion database.',
+    steps: [
+      ['Open', 'https://www.notion.so/profile/integrations', 'Notion → Integrations', ', New integration, name it BugSnap, Save, then copy the Internal Integration Secret.'],
+      ['', '', '', 'In Notion, open your bugs database, click ••• → Connections and add BugSnap.'],
+    ],
+    fields: [{ key: 'token', label: 'Integration secret', placeholder: 'ntn_…', secret: true }],
+  },
+];
+
+let toolStatus = {};
+
+function toolCard(t) {
+  const st = toolStatus[t.id] || { connected: false };
+  const card = h('div', { class: 'card tool-card', id: `tool-${t.id}` });
+  const pill = h('span', { class: 'pill' });
+  setPill(pill, st.connected ? 'Connected' : 'Not set up', st.connected ? 'ok' : '');
+  const where = st.connected ? [st.account, st.site && st.site.replace(/^https?:\/\//, '')].filter(Boolean).join(' · ') : t.blurb;
+  const glyph = h('span', { class: 'glyph tool-glyph', style: `--tool: ${t.color}` });
+  glyph.innerHTML = globalThis.ScreenRecIcons?.[t.icon] || '';
+  card.append(h('div', { class: 'head' }, glyph, h('span', { class: 'row-text' }, h('strong', {}, t.name), h('small', {}, where)), pill));
+
+  const body = h('div', { class: 'tool-body' });
+  body.hidden = st.connected;
+  const steps = h('ol', { class: 'steps' });
+  for (const [verb, url, label, rest] of t.steps) {
+    const li = h('li');
+    if (url) li.append(`${verb} `, h('a', { href: url, target: '_blank', rel: 'noopener' }, label), rest);
+    else li.append(rest);
+    steps.append(li);
+  }
+  const inputs = {};
+  const grid = h('div', { class: 'tool-fields' });
+  for (const f of t.fields) {
+    const saved = f.key === 'site' || f.key === 'baseUrl' ? st.site : f.key === 'email' ? st.email : f.key === 'channel' ? st.channel : '';
+    const input = h('input', {
+      class: 'input',
+      id: `${t.id}-${f.key}`,
+      type: f.secret ? 'password' : f.type === 'email' ? 'email' : 'text',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      placeholder: f.secret && st.connected ? 'Saved. Paste to replace.' : f.placeholder,
+    });
+    input.value = saved || f.value || '';
+    inputs[f.key] = input;
+    grid.append(h('label', { class: 'tool-field', for: input.id }, h('span', { class: 'tool-label' }, f.label), input, f.help ? h('small', {}, f.help) : ''));
+  }
+  const connect = h('button', { class: 'btn primary sm' }, st.connected ? 'Save' : `Connect ${t.name}`);
+  const msg = h('span', { class: 'tool-msg' });
+  connect.addEventListener('click', async () => {
+    const payload = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()]));
+    connect.disabled = true;
+    msg.className = 'tool-msg';
+    msg.textContent = 'Checking…';
+    try {
+      const next = await api('PUT', `/api/integrations/${t.id}`, payload);
+      toolStatus[t.id] = next;
+      toast(`${t.name} connected${next.account ? ` as ${next.account}` : ''}`);
+      renderTools();
+    } catch (err) {
+      msg.className = 'tool-msg bad';
+      msg.textContent = err.message;
+      connect.disabled = false;
+    }
+  });
+  body.append(steps, grid, h('div', { class: 'actions' }, connect, msg));
+  card.append(body);
+
+  if (st.connected) {
+    const actions = h('div', { class: 'actions' });
+    const change = h('button', { class: 'btn sm' }, 'Change');
+    change.addEventListener('click', () => {
+      body.hidden = !body.hidden;
+      change.textContent = body.hidden ? 'Change' : 'Cancel';
+    });
+    actions.append(change);
+    if (t.id === 'slack') {
+      const test = h('button', { class: 'btn sm' }, 'Send a test message');
+      test.addEventListener('click', async () => {
+        test.disabled = true;
+        await api('POST', '/api/integrations/slack/test').then(() => toast(`Sent to ${st.channel || 'Slack'}`), (err) => toast(err.message, false));
+        test.disabled = false;
+      });
+      actions.append(test);
+    }
+    const remove = h('button', { class: 'btn ghost sm' }, 'Disconnect');
+    remove.addEventListener('click', async () => {
+      await api('DELETE', `/api/integrations/${t.id}`).catch((err) => toast(err.message, false));
+      toast(`${t.name} disconnected`);
+      loadTools();
+    });
+    actions.append(remove);
+    card.append(actions);
+  }
+  return card;
+}
+
+function renderTools() {
+  $('toolCards').replaceChildren(...TOOL_CARDS.map(toolCard));
+  const any = Object.values(toolStatus).some((s) => s.connected);
+  navBadge('navTools', any ? 'ok' : '');
+}
+
+async function loadTools() {
+  try {
+    toolStatus = await api('GET', '/api/integrations');
+  } catch (err) {
+    toolStatus = {};
+    $('toolCards').replaceChildren(h('p', { class: 'note bad' }, err.message));
+    return;
+  }
+  renderTools();
+}
+
 // ---------------------------------------------------------------- shortcuts, about, nav
 
 async function loadShortcuts() {
@@ -443,6 +613,7 @@ function loadServerSections() {
   loadDrive();
   loadAi();
   loadGitHub();
+  loadTools();
 }
 
 // Back from connecting Drive in another tab: refresh.

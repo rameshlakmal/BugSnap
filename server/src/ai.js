@@ -386,7 +386,8 @@ Output ONLY the report in Markdown, exactly in this structure, with no preamble 
 
 ## Attachments
 - Recording: <link>   (write "Screenshot: <link>" instead when the capture is a screenshot)
-- <the key evidence, each with its time and a link to that moment, e.g. "Console error at 0:05: TypeError: … (<link with ?t=5 or &t=5>)" or "POST /api/trials returned 500 at 0:05">
+
+Attachments is exactly that one line: the capture's link. No other links, no links to moments (no ?t= or &t=), no list of errors or requests there.
 
 ## Actual result
 <what happened>
@@ -409,7 +410,7 @@ Steps rules:
 Content rules:
 - Use the reporter's description as the source of truth for intent and expectation; use the captured data for facts (pages, errors, status codes, timing).
 - For a suggestion, "Actual result" is the current behaviour and "Expected result" is the suggested behaviour; still list the steps that show where it applies.
-- Only mention console errors or failed requests that plausibly relate to the problem. Quote error messages briefly.
+- Only mention console errors or failed requests that plausibly relate to the problem, briefly, in "Actual result" (no links). Quote error messages briefly.
 - If the reporter's expectation is not given, state the reasonable expectation implied by the problem.
 - Plain, friendly English. No speculation about root causes in code unless the errors make it obvious, then one short sentence in the Description.`;
 
@@ -421,7 +422,6 @@ function buildPrompt(c) {
   lines.push(c.description?.trim() ? c.description.trim() : '(none given: infer from the captured data, and keep the expectation general)');
   lines.push('');
   lines.push(`${c.capture === 'screenshot' ? 'Screenshot' : 'Recording'} link: ${c.link}`);
-  if (c.capture !== 'screenshot') lines.push(`Link to a moment: append ${c.link.includes('?') ? '&' : '?'}t=<seconds>`);
   lines.push(`Page title at start: ${c.title || 'unknown'}`);
   lines.push(`Start URL: ${c.startUrl || 'unknown'}`);
   lines.push(c.capture === 'screenshot' ? 'Capture: annotated screenshot of the visible page (no steps or logs are captured for screenshots)' : `Capture: ${c.mode === 'desktop' ? 'screen recording' : 'browser tab recording'}; duration ${c.duration}`);

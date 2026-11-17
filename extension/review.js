@@ -46,6 +46,7 @@ window.addEventListener('message', (e) => {
   } else if (m.type === 'error') fail(m.message);
   else if (m.type === 'close') close();
   else if (m.type === 'open' && /^https?:\/\//.test(m.url || '')) chrome.runtime.sendMessage({ type: 'open:url', url: m.url }).catch(() => {});
+  else if (m.type === 'settings') chrome.runtime.sendMessage({ type: 'settings:open', section: m.section }).catch(() => {});
   else if (m.type === 'created' && m.kind === 'link') chrome.runtime.sendMessage({ type: 'recording:shared', id, url: m.url }).catch(() => {});
 });
 

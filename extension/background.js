@@ -13,9 +13,9 @@ export const DEFAULT_SETTINGS = {
 };
 
 const HOOK_SCRIPT_ID = 'screenrec-page-hook';
-// The recorder window opens compact and fits itself to its content; it grows to
-// PICKER_WINDOW only while Chrome's screen picker is open (see recorder.js).
-const RECORDER_WINDOW = { width: 560, height: 400 };
+// The recorder window opens straight into Chrome's screen picker (drawn inside it), so it starts
+// at the picker's size; once sharing starts it shrinks to the live controls (see recorder.js).
+const RECORDER_WINDOW = { width: 820, height: 680 };
 const LIBRARY_WINDOW = { width: 1200, height: 800 };
 
 // Let content scripts read the recording state.
@@ -195,9 +195,12 @@ function toBase64(buffer) {
  * Capture the visible tab first (so nothing of ours is in it), then let the user pick an area
  * on the page. The capture waits in session storage until the selection comes back.
  */
-async function startSnap(tabId) {
+async function startSnap(tabId, mode = 'shot') {
   const tab = await chrome.tabs.get(tabId);
   if (!/^(https?|file):/.test(tab.url || '')) throw new Error("This page can't be captured. Open a website first.");
+  // The bar is already up (shortcut pressed twice): capturing again would photograph the bar.
+  const [{ result: open } = {}] = await chrome.scripting.executeScript({ target: { tabId }, func: () => !!window.__bugsnapSnip }).catch(() => []);
+  if (open) return;
   // Give the panel a moment to close so it isn't in the picture.
   await new Promise((r) => setTimeout(r, 220));
   const [image, meta] = await Promise.all([
@@ -205,7 +208,25 @@ async function startSnap(tabId) {
     buildMeta('screenshot', tabId),
   ]);
   await chrome.storage.session.set({ snapPending: { tabId, windowId: tab.windowId, image, meta: { ...meta, type: 'screenshot', takenAt: new Date().toISOString() } } });
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['snip.js'] });
+  await chrome.scripting.executeScript({ target: { tabId }, func: (m) => (window.__bugsnapSnipMode = m), args: [mode] });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['lib/icons.js', 'snip.js'] });
+}
+
+/** The capture bar asked to record: an area of the tab, the whole tab, or the screen. */
+async function startFromBar(msg, tabId) {
+  await chrome.storage.session.remove('snapPending');
+  try {
+    if (!tabId) throw new Error('No tab to record.');
+    if (msg.target === 'desktop') return await startRecording({ mode: 'desktop', tabId });
+    // Allowed because the user invoked the extension on this tab (toolbar or shortcut).
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    const r = msg.rect;
+    const crop = r && r.w >= 8 && r.h >= 8 ? { x: r.x, y: r.y, w: r.w, h: r.h, vw: msg.vw, vh: msg.vh, dpr: msg.dpr || 1 } : null;
+    return await startRecording({ mode: 'tab', tabId, streamId, crop });
+  } catch (err) {
+    await chrome.storage.local.set({ lastError: { message: err.message, at: Date.now() } });
+    throw err;
+  }
 }
 
 async function finishSnap({ rect, vw, vh }, tabId) {
@@ -243,9 +264,9 @@ function mountCreateOverlay(src, themePref) {
   const root = host.attachShadow({ mode: 'closed' });
   root.innerHTML = `<style>
     :host { all: initial; }
-    .back { position: fixed; inset: 0; z-index: 2147483646; display: grid; place-items: center; padding: 24px; box-sizing: border-box;
+    .back { position: fixed; inset: 0; z-index: 2147483646; display: grid; place-items: center; padding: 12px; box-sizing: border-box;
       background: rgb(24 24 27 / 0.45); backdrop-filter: blur(2px); animation: in .18s ease-out; }
-    .card { width: min(1480px, 100%); height: min(880px, 100%); border-radius: 20px; overflow: hidden; background: ${dark ? '#141417' : '#fff'};
+    .card { width: min(1760px, 100%); height: min(1080px, 100%); border-radius: 20px; overflow: hidden; background: ${dark ? '#141417' : '#fff'};
       box-shadow: 0 30px 80px rgb(0 0 0 / 0.3); animation: rise .26s cubic-bezier(0.16, 1, 0.3, 1); }
     iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
     .back.out { animation: out .16s ease-in forwards; }
@@ -332,11 +353,13 @@ async function openInBrowser(url) {
   await chrome.windows.update(win.id, { focused: true });
 }
 
-async function startRecording({ mode, tabId, streamId }) {
+async function startRecording({ mode, tabId, streamId, crop = null }) {
   const existing = await getRec();
   if (existing) throw new Error('Already recording');
 
   const meta = await buildMeta(mode, tabId);
+  // Area recording: the part of the viewport (CSS pixels) that ends up in the video.
+  if (crop) meta.area = crop;
   // `rec` is readable by content scripts, so settings (upload token) are NOT stored here;
   // the recorder fetches them in recorder:hello.
   const rec = {
@@ -344,7 +367,8 @@ async function startRecording({ mode, tabId, streamId }) {
     mode,
     tabId,
     recorderKind: mode === 'tab' ? 'offscreen' : 'window',
-    pending: { mode, streamId, meta },
+    crop, // the page outlines this area while recording
+    pending: { mode, streamId, meta, crop },
   };
   await setRec(rec);
   await chrome.storage.local.remove(['lastError', 'lastResult']);
@@ -551,7 +575,7 @@ const handlers = {
   },
   'snap:start': async (msg) => {
     try {
-      await startSnap(msg.tabId);
+      await startSnap(msg.tabId, msg.mode);
     } catch (err) {
       await chrome.storage.local.set({ lastError: { message: err.message, at: Date.now() } });
       throw err;
@@ -575,9 +599,12 @@ const handlers = {
       await chrome.windows.create({ url, focused: true });
     }
   },
-  'settings:open': () => chrome.runtime.openOptionsPage(),
+  // Optionally at a section (e.g. "tools" from the create dialog's Connect button).
+  'settings:open': (msg) =>
+    /^[a-z]{2,20}$/.test(msg?.section || '') ? chrome.tabs.create({ url: chrome.runtime.getURL(`settings.html#${msg.section}`) }) : chrome.runtime.openOptionsPage(),
   'snip:done': (msg, sender) => finishSnap(msg, sender.tab?.id),
   'snip:cancel': () => chrome.storage.session.remove('snapPending'),
+  'snip:record': (msg, sender) => startFromBar(msg, sender.tab?.id),
   // The editor saved a screenshot: list it with the recordings.
   'snap:saved': async (msg) => {
     const { recent = [] } = await chrome.storage.local.get('recent');

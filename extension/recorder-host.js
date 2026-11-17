@@ -95,6 +95,7 @@ export async function connectRecorder({ kind, onUi = () => {} }) {
       const prepared = await recorder.prepare({
         mode: config.mode,
         streamId: config.streamId,
+        crop: config.crop,
         surface: options.surface,
         includeAudio: options.includeAudio !== false,
         meta: config.meta,

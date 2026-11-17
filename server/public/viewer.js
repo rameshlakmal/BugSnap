@@ -318,9 +318,147 @@ function render() {
 
 let reportDirty = false;
 
+// ---- Report: Preview (formatted) or Markdown (the text, editable here)
+
+const REPORT_MODE_KEY = 'bugsnap.reportMode';
+let reportMode = 'preview';
+try {
+  reportMode = localStorage.getItem(REPORT_MODE_KEY) === 'markdown' ? 'markdown' : 'preview';
+} catch {
+  /* storage off: start with the preview */
+}
+
+function setReportMode(mode, remember) {
+  reportMode = mode;
+  document.querySelectorAll('#reportMode [data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  $('report').hidden = mode !== 'markdown';
+  $('reportView').hidden = mode === 'markdown';
+  if (mode === 'preview') $('reportView').innerHTML = renderMarkdown($('report').value);
+  if (remember) {
+    try {
+      localStorage.setItem(REPORT_MODE_KEY, mode);
+    } catch {
+      /* not remembered */
+    }
+  }
+}
+document.querySelectorAll('#reportMode [data-mode]').forEach((b) => b.addEventListener('click', () => setReportMode(b.dataset.mode, true)));
+
+/**
+ * Small Markdown renderer for reports: headings, paragraphs, lists (nested), code, quotes,
+ * rules, tables, links and images. Everything is escaped first, so a report can't add HTML;
+ * links and images must be http(s).
+ */
+function renderMarkdown(src) {
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const safeUrl = (u) => (/^https?:\/\//i.test(u) ? u : null);
+  const inline = (text) => {
+    // Code spans and links are set aside first so their text is not formatted again.
+    const keep = [];
+    const put = (html) => `\u0000${keep.push(html) - 1}\u0000`;
+    let s = esc(text).replace(/`([^`]+)`/g, (_, c) => put(`<code>${c}</code>`));
+    s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) => {
+      const u = safeUrl(url.replace(/&amp;/g, '&'));
+      return u ? put(`<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${alt}" loading="lazy"></a>`) : m;
+    });
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
+      const u = safeUrl(url.replace(/&amp;/g, '&'));
+      return u ? put(`<a href="${esc(u)}" target="_blank" rel="noopener">${label}</a>`) : m;
+    });
+    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, url) => pre + put(`<a href="${url}" target="_blank" rel="noopener">${url}</a>`));
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^\w*])\*([^*\s][^*]*)\*(?!\w)/g, '$1<em>$2</em>').replace(/(^|[^\w])_([^_\s][^_]*)_(?!\w)/g, '$1<em>$2</em>');
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    // Twice: a link's label can hold a code span.
+    for (let n = 0; n < 2; n++) s = s.replace(/\u0000(\d+)\u0000/g, (_, k) => keep[k]);
+    return s;
+  };
+
+  const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let i = 0;
+  const LIST = /^\s*([-*+]|\d+[.)])\s+/;
+  const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
+  const ROW = /^\s*\|.*\|\s*$/;
+  const isList = (l) => LIST.test(l) && !RULE.test(l);
+  const isBlockStart = (l) => /^\s*(#{1,6}\s|```|>)/.test(l) || RULE.test(l) || isList(l) || ROW.test(l);
+
+  function list(baseIndent) {
+    const ordered = /^\s*\d+[.)]/.test(lines[i]);
+    const items = [];
+    while (i < lines.length && isList(lines[i])) {
+      const indent = lines[i].match(/^\s*/)[0].length;
+      if (indent < baseIndent) break;
+      if (indent > baseIndent && items.length) {
+        items[items.length - 1] += list(indent);
+        continue;
+      }
+      let text = lines[i].replace(LIST, '');
+      i++;
+      // Indented lines that continue the item.
+      while (i < lines.length && lines[i].trim() && !isList(lines[i]) && /^\s+/.test(lines[i])) text += ' ' + lines[i++].trim();
+      const task = /^\[( |x)\]\s+/i.exec(text);
+      items.push(task ? `${task[1].trim() ? '☑' : '☐'} ${inline(text.slice(task[0].length))}` : inline(text));
+    }
+    const tag = ordered ? 'ol' : 'ul';
+    return `<${tag}>${items.map((x) => `<li>${x}</li>`).join('')}</${tag}>`;
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    if (/^\s*```/.test(line)) {
+      const code = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++]);
+      i++;
+      out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+    const hd = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    if (hd) {
+      out.push(`<h${hd[1].length}>${inline(hd[2])}</h${hd[1].length}>`);
+      i++;
+      continue;
+    }
+    if (RULE.test(line)) {
+      out.push('<hr>');
+      i++;
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const q = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) q.push(lines[i++].replace(/^\s*>\s?/, ''));
+      out.push(`<blockquote>${renderMarkdown(q.join('\n'))}</blockquote>`);
+      continue;
+    }
+    if (isList(line)) {
+      out.push(list(line.match(/^\s*/)[0].length));
+      continue;
+    }
+    if (ROW.test(line) && /^\s*\|?[\s:-]+(\|[\s:-]+)+\|?\s*$/.test(lines[i + 1] || '')) {
+      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+      const head = cells(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && ROW.test(lines[i])) rows.push(cells(lines[i++]));
+      out.push(`<table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+      continue;
+    }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !(para.length && isBlockStart(lines[i]))) para.push(lines[i++].trim());
+    out.push(`<p>${para.map(inline).join('<br>')}</p>`);
+  }
+  return out.join('');
+}
+
 function renderReport() {
   const saved = rec.report?.markdown;
   if (!reportDirty) $('report').value = saved || buildReport();
+  setReportMode(reportMode);
   $('reportLabel').textContent = saved
     ? `${rec.report.model ? 'Written by Claude' : 'Saved report'}${rec.report.editedAt ? ' · edited' : ''}`
     : 'Draft from the recording';
@@ -1107,12 +1245,6 @@ function buildReport() {
   else if (failed[0]) problem = `${failed[0].method} ${pathOf(failed[0].url).split('?')[0]} returns ${failed[0].status || 'a network error'}`;
   const title = `${pageName} - ${problem}`;
   const link = shareLink();
-  const at = (e) => `${link}${link.includes('?') ? '&' : '?'}t=${Math.floor(offsetOf(e))}`;
-
-  const evidence = [
-    ...errors.slice(0, 5).map((e) => `- Console error at ${fmt(offsetOf(e))}: \`${e.message.split('\n')[0].slice(0, 200)}\` (${at(e)})`),
-    ...failed.slice(0, 5).map((e) => `- \`${e.method} ${shortUrl(e.url)}\` returned ${e.status || 'a network error'} at ${fmt(offsetOf(e))} (${at(e)})`),
-  ];
   const size = (o) => (o && o.width ? `${o.width}x${o.height}` : 'unknown');
 
   return [
@@ -1128,11 +1260,10 @@ function buildReport() {
     '## Steps to reproduce',
     ...(steps.length ? steps.map((e, i) => `${i + 1}. ${e.text}`) : isShot() ? [`1. Go to ${meta.startUrl || 'the page'}`, '2. _Describe what to do to see the problem._'] : ['1. _No steps captured_']),
     '',
+    // Just the capture itself (and the screenshot shown as an image).
     '## Attachments',
     ...imageLines(),
     `- ${isShot() ? 'Screenshot' : 'Recording'}: ${link}`,
-    ...(rec.fromRecordingInfo ? [`- From recording at ${fmt(rec.fromRecordingInfo.at)}: ${atTime(rec.fromRecordingInfo.shareUrl || rec.fromRecordingInfo.viewerUrl, rec.fromRecordingInfo.at)}`] : []),
-    ...evidence,
     '',
     '## Actual result',
     '_What happened._',
@@ -1826,20 +1957,21 @@ function rememberBoards() {
     values[pid] = {};
     for (const [fid, set] of Object.entries(ghState.fieldSel[pid] || {})) if (set.size) values[pid][fid] = [...set][0];
   }
-  try {
-    localStorage.setItem(boardKey(repo), JSON.stringify({ boards: [...ghState.boards], values }));
-  } catch {
-    /* storage off: nothing to remember */
-  }
+  // Kept on the server: storage inside the overlay frame is separate for every site.
+  ghState.savedBoards = { boards: [...ghState.boards], values };
+  fetch('/api/github/boards', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repo, ...ghState.savedBoards }) }).catch(() => {});
 }
 
 /** Last boards and values used with this repository, kept only where they still exist. */
 function restoreBoards(repo) {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(boardKey(repo)) || 'null');
-  } catch {
-    saved = null;
+  let saved = ghState.savedBoards;
+  if (!saved) {
+    // Remembered by an older version in this browser only.
+    try {
+      saved = JSON.parse(localStorage.getItem(boardKey(repo)) || 'null');
+    } catch {
+      saved = null;
+    }
   }
   if (!saved) {
     // First time with this repo: show boards made for bug details right away (linked to the
@@ -1934,6 +2066,7 @@ function renderBoards() {
 }
 
 async function loadProjects(repo) {
+  ghState.savedBoards = null;
   ghState.projects = [];
   ghState.projectsError = null;
   ghState.boards.clear();
@@ -1947,6 +2080,7 @@ async function loadProjects(repo) {
     if (!ghState.repo.has(repo)) return;
     ghState.projects = res.projects || [];
     ghState.projectsError = res.error || null;
+    ghState.savedBoards = res.saved || null;
   } catch (err) {
     if (!ghState.repo.has(repo)) return;
     ghState.projectsError = err.message;
@@ -2111,6 +2245,14 @@ async function openGitHub({ inline = false } = {}) {
   try {
     // Unsaved edits in the Report tab go into the issue too.
     const draft = await ghJson(`/api/recordings/${encodeURIComponent(id)}/github/draft`);
+    // The draft waits for the public link; the page may have loaded before it existed.
+    await refreshLinks();
+    if (!driveMode && !rec.shareUrl) {
+      const msg = "Google Drive isn't connected, so links only open on this computer. Reconnect it in BugSnap Settings.";
+      // In the create dialog its own alert sits above the footer, always in view.
+      if (inline) crError(msg);
+      else ghError(msg);
+    }
     // Unsaved Report tab edits first, then a saved report, else the template filled from the recording
     // (preconditions, steps, attachments), so the issue is useful before anything is written.
     if (reportDirty) fillGhFromMarkdown($('report').value, draft.title);
@@ -2155,6 +2297,19 @@ async function openGitHub({ inline = false } = {}) {
   }
 }
 
+/** Pick up the public link and Drive images reserved since the page loaded (never the local link in an issue). */
+async function refreshLinks() {
+  if (driveMode || (rec.shareUrl && (!rec.frames?.length || (rec.frameShots || []).every((f) => f.fileId)))) return;
+  const fresh = await fetch(`/api/recordings/${encodeURIComponent(id)}?events=0`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  if (!fresh) return;
+  rec.shareUrl = fresh.shareUrl;
+  rec.drive = fresh.drive;
+  rec.driveConnected = fresh.driveConnected;
+  if (fresh.frameShots) rec.frameShots = fresh.frameShots;
+}
+
 function closeGitHub() {
   if (crOpen()) return closeCreate();
   const back = $('gh');
@@ -2196,7 +2351,10 @@ if (!driveMode) {
       selected: ghState.repo,
       onChange: () => {
         renderRepoPick();
-        loadRepoMeta([...ghState.repo][0]);
+        const repo = [...ghState.repo][0];
+        loadRepoMeta(repo);
+        // Picked = last used: selected next time and listed first.
+        if (repo) fetch('/api/github', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ defaultRepo: repo }) }).catch(() => {});
       },
     });
   });
@@ -2469,6 +2627,10 @@ if (!driveMode) $('frameBtn').addEventListener('click', captureFrame);
 const CR_KINDS = [
   { key: 'link', name: 'Link to share', icon: 'link-simple' },
   { key: 'github', name: 'GitHub issue', icon: 'github-logo' },
+  { key: 'jira', name: 'Jira issue', icon: 'jira-logo' },
+  { key: 'gitlab', name: 'GitLab issue', icon: 'gitlab-logo' },
+  { key: 'slack', name: 'Slack message', icon: 'slack-logo' },
+  { key: 'notion', name: 'Notion page', icon: 'notion-logo' },
 ];
 const CR_KIND_KEY = 'bugsnap.create.kind';
 const cr = { open: false, kind: new Set(), ghReady: false, busy: false, start: 0, end: 0, dur: 0, raf: 0, saved: { title: '', description: '' } };
@@ -2529,11 +2691,16 @@ function closeCreate() {
 
 function crSetKind() {
   const k = CR_KINDS.find((x) => x.key === crKind());
-  setPickVal($('crKind'), [icon(k.icon), h('span', { class: 'txt' }, k.name)], true);
+  setPickVal($('crKind'), [icon(k.icon, `icon brand-${k.key}`), h('span', { class: 'txt' }, k.name)], true);
   const gh = k.key === 'github';
-  $('crLinkFields').hidden = gh;
+  const tool = Boolean(TOOL_INFO[k.key]);
+  $('crLinkFields').hidden = gh || tool;
   $('crGhSlot').hidden = !gh;
+  $('crTool').hidden = !tool;
   crError('');
+  if (tool) crToolOpen(k.key).catch((err) => tlError(err.message));
+  $('crCreate').querySelector('span').textContent = crCreateLabel();
+  if (!tool) $('crCreate').hidden = false;
   if (gh && !cr.ghReady) {
     // Move the issue form (and its success card) into the dialog, then load repos and labels.
     cr.ghReady = true;
@@ -2541,6 +2708,198 @@ function crSetKind() {
     openGitHub({ inline: true });
   }
   crNote();
+}
+
+// ---- Jira, GitLab, Slack, Notion: one form for all four (connected in the extension's Settings)
+
+const TOOL_INFO = {
+  jira: { tool: 'Jira', icon: 'jira-logo', target: 'Project', create: 'Create issue', done: 'Jira issue created' },
+  gitlab: { tool: 'GitLab', icon: 'gitlab-logo', target: 'Project', create: 'Create issue', done: 'GitLab issue created' },
+  slack: { tool: 'Slack', icon: 'slack-logo', target: null, create: 'Send to Slack', done: 'Sent to Slack' },
+  notion: { tool: 'Notion', icon: 'notion-logo', target: 'Database', create: 'Add to Notion', done: 'Added to Notion' },
+};
+const tl = { tool: null, status: null, draft: null, targets: {}, target: new Set(), types: [], type: new Set(), bodyEdited: false, titleEdited: false };
+
+async function tlJson(method, path, body) {
+  const res = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Server answered ${res.status}`);
+  return data;
+}
+
+function tlError(message) {
+  $('tAlert').hidden = !message;
+  $('tAlertText').textContent = message || '';
+}
+
+/** Open Settings at the "More tools" section (the extension opens it when we are inside it). */
+function openToolSettings() {
+  if (embedded) tellParent({ type: 'settings', section: 'tools' });
+  else location.href = '/settings';
+}
+
+async function crToolOpen(tool) {
+  const info = TOOL_INFO[tool];
+  tl.tool = tool;
+  tlError('');
+  $('crToolDone').hidden = true;
+  if (!tl.status) tl.status = await tlJson('GET', '/api/integrations').catch(() => ({}));
+  const st = tl.status[tool] || {};
+  $('crToolSetup').hidden = Boolean(st.connected);
+  $('crToolFields').hidden = !st.connected;
+  crFooterForTool();
+  if (!st.connected) {
+    $('crToolSetupLogo').replaceChildren(icon(info.icon));
+    $('crToolSetupText').textContent = `Connect ${info.tool} once to send reports there. It takes about a minute.`;
+    return;
+  }
+  $('tTargetField').hidden = !info.target;
+  $('tTargetLabel').textContent = info.target || '';
+  $('tTypeField').hidden = tool !== 'jira';
+  $('tLabelsField').hidden = tool !== 'gitlab';
+  $('tWhere').hidden = tool !== 'slack';
+  $('tWhere').textContent = tool === 'slack' ? `Posts to ${st.channel || 'your Slack channel'}` : '';
+  if (!$('tWhat').value) $('tWhat').value = rec.meta?.description || '';
+  if (!tl.draft) {
+    tl.draft = await tlJson('GET', `/api/recordings/${encodeURIComponent(id)}/draft`).catch(() => ({ title: rec.meta?.title || '', body: '' }));
+    if (!tl.titleEdited) $('tTitle').value = tl.draft.title || '';
+    if (!tl.bodyEdited) $('tBody').value = tl.draft.body || '';
+  }
+  if (info.target) await tlLoadTargets(st);
+}
+
+async function tlLoadTargets(st) {
+  const tool = tl.tool;
+  setPickVal($('tTarget'), [placeholder('Loading…')], false);
+  try {
+    if (!tl.targets[tool]) tl.targets[tool] = await tlJson('GET', `/api/integrations/${tool}/targets`);
+  } catch (err) {
+    setPickVal($('tTarget'), [placeholder('Could not load')], false);
+    return tlError(err.message);
+  }
+  const list = tl.targets[tool];
+  const wanted = st.defaults?.target;
+  const pick = list.find((t) => t.id === wanted) || list[0];
+  tl.target = new Set(pick ? [pick.id] : []);
+  tlRenderTarget();
+  if (!list.length) tlError(tool === 'notion' ? 'No databases yet. In Notion, open your bugs database, then ••• → Connections → add BugSnap.' : `Your ${TOOL_INFO[tool].tool} token can't see any project.`);
+  if (tool === 'jira') await tlLoadTypes();
+}
+
+function tlRenderTarget() {
+  const t = (tl.targets[tl.tool] || []).find((x) => tl.target.has(x.id));
+  setPickVal($('tTarget'), [t ? h('span', { class: 'txt' }, t.name) : placeholder(`Choose a ${TOOL_INFO[tl.tool].target.toLowerCase()}`)], Boolean(t));
+}
+
+async function tlLoadTypes() {
+  const target = [...tl.target][0];
+  tl.types = [];
+  setPickVal($('tType'), [placeholder(target ? 'Loading…' : 'Pick a project first')], false);
+  if (!target) return;
+  try {
+    tl.types = (await tlJson('GET', `/api/integrations/jira/meta?target=${encodeURIComponent(target)}`)).issueTypes || [];
+  } catch (err) {
+    return tlError(err.message);
+  }
+  const wanted = tl.status.jira?.defaults?.issueType;
+  const pick = tl.types.find((t) => t.id === wanted) || tl.types.find((t) => /^bug$/i.test(t.name)) || tl.types[0];
+  tl.type = new Set(pick ? [pick.id] : []);
+  tlRenderType();
+}
+
+function tlRenderType() {
+  const t = tl.types.find((x) => tl.type.has(x.id));
+  setPickVal($('tType'), [t ? h('span', { class: 'txt' }, t.name) : placeholder('Issue type')], Boolean(t));
+}
+
+async function tlWrite() {
+  const btn = $('tWrite');
+  const hint = $('tAiHint');
+  if (!$('tWhat').value.trim()) {
+    hint.className = 'ai-hint bad';
+    hint.textContent = 'Describe what happened first.';
+    return $('tWhat').focus();
+  }
+  const kind = document.querySelector('[data-tkind].on')?.dataset.tkind || 'bug';
+  btn.disabled = true;
+  $('crCreate').disabled = true;
+  $('tBody').classList.add('writing');
+  btn.querySelector('span:last-child').textContent = 'Writing…';
+  hint.className = 'ai-hint';
+  hint.textContent = 'About 10 seconds';
+  try {
+    const report = await tlJson('POST', `/api/recordings/${encodeURIComponent(id)}/report`, { description: $('tWhat').value, kind });
+    rec.report = report;
+    rec.meta = { ...rec.meta, description: $('tWhat').value };
+    const draft = await tlJson('GET', `/api/recordings/${encodeURIComponent(id)}/draft`);
+    tl.draft = draft;
+    $('tTitle').value = draft.title || '';
+    $('tBody').value = draft.body || '';
+    tl.bodyEdited = tl.titleEdited = false;
+    hint.textContent = 'Written for you. Edit anything before sending.';
+  } catch (err) {
+    hint.className = 'ai-hint bad';
+    hint.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    $('crCreate').disabled = false;
+    $('tBody').classList.remove('writing');
+    btn.querySelector('span:last-child').textContent = 'Write with Claude';
+  }
+}
+
+async function tlSend() {
+  const tool = tl.tool;
+  const info = TOOL_INFO[tool];
+  if (!tl.status?.[tool]?.connected) return openToolSettings();
+  const target = [...tl.target][0] || '';
+  if (info.target && !target) throw new Error(`Choose a ${info.target.toLowerCase()}.`);
+  if (!$('tTitle').value.trim()) throw new Error('Add a title.');
+  const extra = tool === 'jira' ? { issueType: [...tl.type][0] || '' } : tool === 'gitlab' ? { labels: $('tLabels').value.trim() } : {};
+  const sent = await tlJson('POST', `/api/recordings/${encodeURIComponent(id)}/send/${tool}`, { target, title: $('tTitle').value.trim(), body: $('tBody').value, extra });
+  // Remember the choices for next time.
+  tl.status[tool].defaults = { ...(tl.status[tool].defaults || {}), target, ...(extra.issueType ? { issueType: extra.issueType } : {}) };
+  $('crToolFields').hidden = true;
+  $('crToolDone').hidden = false;
+  $('tDoneTitle').textContent = info.done;
+  $('tDoneSub').textContent = [sent.label, sent.title].filter(Boolean).join(' · ');
+  $('tDoneOpen').hidden = !sent.url;
+  $('tDoneOpen').onclick = () => crOpenTab(sent.url);
+  crFooterForTool();
+  tellParent({ type: 'created', kind: tool, url: sent.url || sent.link });
+}
+
+if (!driveMode) {
+  $('crToolConnect').addEventListener('click', openToolSettings);
+  $('tWrite').addEventListener('click', tlWrite);
+  $('tTitle').addEventListener('input', () => (tl.titleEdited = true));
+  $('tBody').addEventListener('input', () => (tl.bodyEdited = true));
+  document.querySelectorAll('[data-tkind]').forEach((b) =>
+    b.addEventListener('click', () => document.querySelectorAll('[data-tkind]').forEach((x) => x.classList.toggle('on', x === b))),
+  );
+  $('tTarget').addEventListener('click', () => {
+    const items = tl.targets[tl.tool] || [];
+    showPicker($('tTarget'), {
+      title: TOOL_INFO[tl.tool].target,
+      items,
+      key: (t) => t.id,
+      name: (t) => t.name,
+      selected: tl.target,
+      empty: 'Nothing found',
+      onChange: () => {
+        tlRenderTarget();
+        if (tl.tool === 'jira') tlLoadTypes();
+      },
+    });
+  });
+  $('tType').addEventListener('click', () => {
+    showPicker($('tType'), { title: 'Issue type', noSearch: true, items: tl.types, key: (t) => t.id, name: (t) => t.name, selected: tl.type, onChange: tlRenderType });
+  });
+  $('tDoneAgain').addEventListener('click', () => {
+    $('crToolDone').hidden = true;
+    $('crToolFields').hidden = false;
+    crFooterForTool();
+  });
 }
 
 // ---- folder (project) for this capture; new captures go to the folder chosen last
@@ -2787,12 +3146,22 @@ async function crApplyTrim() {
   }
 }
 
+/** "Create", or what the chosen tool does ("Send to Slack"). */
+const crCreateLabel = () => TOOL_INFO[crKind()]?.create || 'Create';
+
+/** Footer button: hidden while a tool still needs connecting or has just been sent to. */
+function crFooterForTool() {
+  const tool = TOOL_INFO[crKind()];
+  const idle = tool && (!$('crToolSetup').hidden || !$('crToolDone').hidden);
+  $('crCreate').hidden = Boolean(idle);
+}
+
 function crBusy(text) {
   cr.busy = Boolean(text);
   const btn = $('crCreate');
   btn.disabled = cr.busy;
   btn.classList.toggle('busy', cr.busy);
-  btn.querySelector('span:last-child').textContent = text || 'Create';
+  btn.querySelector('span:last-child').textContent = text || crCreateLabel();
   $('crTrim').classList.toggle('locked', cr.busy);
 }
 
@@ -2812,12 +3181,18 @@ async function crCreate() {
     if (missing) return ghError(missing);
   }
   try {
-    crBusy(kind === 'github' ? 'Creating…' : 'Creating link…');
+    crBusy(kind === 'github' ? 'Creating…' : TOOL_INFO[kind] ? 'Sending…' : 'Creating link…');
     await crFlushParent();
     await crApplyTrim();
     if (kind === 'github') {
       crBusy('Creating issue…');
       await submitGitHub();
+      return;
+    }
+    if (TOOL_INFO[kind]) {
+      tlError('');
+      await crSaveDetails();
+      await tlSend().catch((err) => tlError(err.message));
       return;
     }
     crBusy('Creating link…');
@@ -2862,7 +3237,7 @@ if (!driveMode) {
       items: CR_KINDS,
       key: (k) => k.key,
       name: (k) => k.name,
-      lead: (k) => icon(k.icon),
+      lead: (k) => icon(k.icon, `icon brand-${k.key}`),
       selected: cr.kind,
       onChange: () => {
         try {

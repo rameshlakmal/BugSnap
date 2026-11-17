@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # One-time setup of a BugSnap server on Ubuntu 24.04 (e.g. an Oracle Cloud Always Free VM).
 #
-#   curl -fsSL https://raw.githubusercontent.com/rameshlakmal/BugSnap/master/server/deploy/setup.sh -o setup.sh
-#   bash setup.sh <your-domain>          e.g. bash setup.sh 129-154-10-20.sslip.io
+#   curl -fsSL https://raw.githubusercontent.com/<your-github-name>/<your-copy>/master/server/deploy/setup.sh -o setup.sh
+#   REPO=https://github.com/<your-github-name>/<your-copy>.git bash setup.sh <your-domain>
+#   e.g. REPO=https://github.com/jane/BugSnap.git bash setup.sh 129-154-10-20.sslip.io
 #
 # Installs Node 22, ffmpeg and Caddy (automatic HTTPS), opens ports 80/443, runs BugSnap as a
 # service that starts on boot. Safe to run again: it updates instead of reinstalling.
 set -euo pipefail
 
 DOMAIN="${1:?Usage: bash setup.sh <domain>   (for example 129-154-10-20.sslip.io)}"
-REPO="${REPO:-https://github.com/rameshlakmal/BugSnap.git}"
+REPO="${REPO:?Set REPO to your copy of BugSnap, e.g. REPO=https://github.com/<you>/BugSnap.git bash setup.sh <domain>}"
 BRANCH="${BRANCH:-master}"
 APP=/opt/bugsnap/app
 DATA=/opt/bugsnap/data

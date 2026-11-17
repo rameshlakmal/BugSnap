@@ -1,143 +1,37 @@
-# Set up Google Drive sharing
+# Google Drive sharing
 
-When this is set up, every finished recording is uploaded to a **BugSnap** folder in your Google Drive, made viewable by anyone with the link, and gets a public link to your own player on GitHub Pages:
+**The easy way:** run `setup.cmd`, then follow `http://localhost:4800/setup`. It has a link for every step below, checks your values as you go, and saves them for you. This page is the same steps written out, for reference.
 
 ```
-Extension ──► local server (http://localhost:4800) ──► Google Drive (BugSnap folder, "anyone with the link")
-                 fixes seeking, makes thumbnail              ▲
-                                                             │ streams video + logs
-Viewer opens https://<you>.github.io/bugsnap-viewer/?id=… ─┘
+Extension ──► BugSnap on your computer ──► your Google Drive (BugSnap folder, "anyone with the link")
+                                                  ▲
+                                                  │ streams video + logs
+Share link opens https://<you>.github.io/<your-copy>/?id=…   (your own player, built by your copy)
 ```
 
-Takes about 20 minutes. You need a Google account (use a personal one: company Google accounts often block unverified apps) and a GitHub account.
+Everything here is yours: your Google app, your Drive, your player. Use a personal Google account (company accounts often block apps they haven't approved).
 
 > **Anyone with a link can watch that recording**, including people it gets forwarded to. Passwords and tokens are kept out of the logs, but the video shows whatever was on screen.
 
----
+## Your Google app (about 5 minutes)
 
-## 1. Create a Google Cloud project
+1. [Create a project](https://console.cloud.google.com/projectcreate) named `BugSnap`.
+2. [Turn on the Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com) (check the BugSnap project is selected at the top).
+3. [Set up the sign-in screen](https://console.cloud.google.com/auth/overview): Get started, app name `BugSnap`, your email, audience **External**, Create.
+4. [Add the Drive permission](https://console.cloud.google.com/auth/scopes): Add or remove scopes, paste `https://www.googleapis.com/auth/drive.file` under "Manually add scopes", Update, Save. BugSnap can only see the files it creates.
+5. [Publish the app](https://console.cloud.google.com/auth/audience): Publish app, Confirm. **Don't skip this:** an app left in "Testing" is signed out by Google every 7 days. No Google review is needed for this permission.
+6. [Create the sign-in client](https://console.cloud.google.com/auth/clients/create): type **Desktop app**, name `BugSnap`, Create. Paste the **client ID** and **client secret** on the setup page and click **Save and connect Drive**.
 
-1. Open <https://console.cloud.google.com/> and sign in.
-2. Project picker (top left) → **New project** → name it `BugSnap` → **Create**. Make sure it is selected afterwards.
+## Your share player (about 3 minutes)
 
-## 2. Turn on the Google Drive API
+1. [Create an API key](https://console.cloud.google.com/apis/credentials) (Create credentials, API key). Edit it: API restrictions, Restrict key, tick **Google Drive API**, Save. You can also restrict it to your player's address under Website restrictions.
+2. In your copy on GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**, name `DRIVE_API_KEY`, value: the key. (The key is public by design: every viewer of a share link receives it.)
+3. **Settings → Pages → Source: GitHub Actions.**
+4. **Actions → Player → Run workflow.** After about a minute the player is live at `https://<you>.github.io/<your-copy>/`.
+5. On the setup page, fill in the key and the player address, then **Save and check**.
 
-1. Go to **APIs & Services → Library** (or <https://console.cloud.google.com/apis/library/drive.googleapis.com>).
-2. Open **Google Drive API** → **Enable**.
+The player rebuilds by itself whenever its files change in your copy.
 
-## 3. Set up the sign-in screen
+## Without the setup page
 
-Google calls this the **OAuth consent screen**. In the current console it lives under **Google Auth Platform**.
-
-1. Go to **APIs & Services → OAuth consent screen**, then click **Get started**.
-2. **App information:** app name `BugSnap`, your email as support email → **Next**.
-3. **Audience:** **External** → **Next**.
-4. **Contact information:** your email → **Next** → agree → **Create**.
-5. Open **Data Access** → **Add or remove scopes**.
-   - Tick `.../auth/drive.file` ("See, edit, create, and delete only the specific Google Drive files you use with this app").
-   - **Update** → **Save**.
-   - This scope lets BugSnap see only the files it creates, never the rest of your Drive.
-6. Open **Audience** → **Publish app** → **Confirm**.
-   - Do this. While the app is in "Testing", Google ends the sign-in every 7 days.
-   - With only the `drive.file` scope, publishing doesn't need a review by Google.
-   - If you'd rather stay in Testing: add yourself under **Test users** and reconnect weekly.
-
-## 4. Create the sign-in client for the server
-
-1. Go to **Google Auth Platform → Clients** (or **APIs & Services → Credentials**).
-2. Click **Create client**.
-3. **Application type: Desktop app**, name `BugSnap server` → **Create**.
-   - It must be **Desktop app**. That type lets the server sign in through `http://127.0.0.1:4800`. A "Web application" client gives a `redirect_uri_mismatch` error.
-4. Copy the **Client ID** and **Client secret**.
-
-## 5. Create the API key for the player
-
-The public player uses this key to stream shared files from Drive.
-
-1. **APIs & Services → Credentials → Create credentials → API key**. Copy the key.
-2. Click the key to edit it.
-   - **API restrictions:** **Restrict key** → choose **Google Drive API**.
-   - **Application restrictions:** **Websites**, add `https://<your-github-name>.github.io/*`. You can add this after step 6.
-   - **Save**.
-
-The key is visible to anyone who opens the player; that is normal for this setup. The restrictions mean it only works for reading Drive files from your player.
-
-## 6. Publish the player on GitHub Pages
-
-1. Fill in the server settings first, so the build can find the API key:
-
-   ```bash
-   cd server
-   cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
-   ```
-
-   Open `server/.env` and set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `DRIVE_API_KEY`. Leave `VIEWER_URL` for now.
-
-2. Build the player:
-
-   ```bash
-   npm run build:viewer        # writes ../viewer-site
-   ```
-
-3. On GitHub, create a new **public** repository named `bugsnap-viewer`. Leave it empty: no README, no license.
-   - GitHub Pages on a private repo needs a paid plan.
-   - The repo only holds the player, never any recordings.
-
-4. Push the built folder:
-
-   ```bash
-   cd ../viewer-site
-   git init -b main
-   git add .
-   git commit -m "BugSnap player"
-   git remote add origin https://github.com/<your-github-name>/bugsnap-viewer.git
-   git push -u origin main
-   ```
-
-5. On GitHub: repo **Settings → Pages** → **Source: Deploy from a branch** → branch `main`, folder `/ (root)` → **Save**. After a minute the page is live at `https://<your-github-name>.github.io/bugsnap-viewer/`.
-
-6. Put that address in `server/.env`, without a trailing slash:
-
-   ```
-   VIEWER_URL=https://<your-github-name>.github.io/bugsnap-viewer
-   ```
-
-   If you skipped the website restriction in step 5, add it now.
-
-## 7. Connect your Drive
-
-1. Restart the server: `npm start` in `server/`. It should print `Google Drive: not connected. Connect it in BugSnap Settings (click the extension icon, then the gear).`
-2. Open **BugSnap Settings → Google Drive** (panel → gear) and click **Connect Google Drive**.
-3. Choose your Google account and allow access.
-   - If Google shows "Google hasn't verified this app": click **Advanced → Go to BugSnap**. It is your own app.
-4. You land back on Settings showing **Connected**. Already have recordings? Click **Upload older recordings**.
-
-## 8. Try it
-
-1. Record a tab with the extension and stop.
-2. The local player opens with **"Uploading to Google Drive…"**. When the message goes away, **Copy link** copies the public link. The popup's copy button does the same once the upload is done.
-3. Open the link in a private window, or send it to someone. It plays with the steps, console and network tabs.
-4. Files are in **My Drive → BugSnap**. Each recording has three files: the video (`.webm`), the thumbnail (`.jpg`) and the logs and details (`.json`).
-
----
-
-## Everyday notes
-
-- **Keep the server running** while you record (`npm start`). Viewers don't need it: they stream from Drive.
-- **Stop sharing one recording:** in Drive, open its files and set sharing to **Restricted**, or delete them. The link stops working.
-- **Disconnect:** Settings → **Disconnect**. Links you already shared keep working.
-- **After updating BugSnap:** run `npm run build:viewer` again and push `viewer-site` so the public player matches.
-- **Local copies** stay in `server/data`. Delete old recording folders there to free space; the Drive copies are not affected.
-
-## Troubleshooting
-
-| What you see | Fix |
-|---|---|
-| `redirect_uri_mismatch` when connecting | The OAuth client must be type **Desktop app** (step 4). |
-| "Access blocked" / "This app is blocked" | You signed in with a company account that blocks outside apps. Use a personal Google account. |
-| Settings says "Not set up" | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` missing in `server/.env`, or the server wasn't restarted. |
-| "Google Drive access expired" | The app is still in Testing (7-day limit) or access was removed. Publish the app (step 3.6) and connect again. |
-| Player says "Recording not found" | Check the API key: Drive API enabled in the same project, key restricted to **Google Drive API**, website restriction matches `https://<name>.github.io/*`. |
-| Upload failed: storage quota | Your Drive is full. Free space, then click **Retry** in the local player. |
-| Video stops loading after many views | Google limits downloads of very popular files for 24 hours. It recovers on its own. |
-| Links point to `drive.google.com` instead of your player | `VIEWER_URL` isn't set. Set it and restart. Recordings uploaded before that keep their Drive link; use **Upload** in their player to republish. |
+The same values can go in `server/.env` (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DRIVE_API_KEY`, `VIEWER_URL`); values saved on the setup page win. Then connect Drive in the extension: Settings → Google Drive → Connect.

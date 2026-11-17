@@ -40,6 +40,7 @@ export class GitHub {
       tokenHint: t ? `…${t.slice(-4)}` : null,
       fromEnv: Boolean(!this.saved.token && this.envToken),
       defaultRepo: this.saved.defaultRepo,
+      recentRepos: this.saved.recentRepos || [],
     };
   }
 
@@ -92,13 +93,42 @@ export class GitHub {
     return this.status();
   }
 
+  /** The repository last used; it also goes to the top of the recent list. */
   async setDefaultRepo(fullName) {
-    this.saved.defaultRepo = fullName || null;
+    const repo = /^[\w.-]+\/[\w.-]+$/.test(fullName || '') ? fullName : null;
+    // Older saves have only the last repo: it starts the recent list.
+    const before = this.saved.recentRepos?.length ? this.saved.recentRepos : [this.saved.defaultRepo].filter(Boolean);
+    this.saved.defaultRepo = repo;
+    if (repo) this.saved.recentRepos = mru(before, [repo], 8);
     await this.persist();
   }
 
-  /** Repositories the token can reach, most recently updated first. */
+  /** Boards (and their dropdown values) last used with a repository; recent boards are listed first. */
+  boardPrefs(repo) {
+    return this.saved.boards?.[repo] || null;
+  }
+
+  async setBoardPrefs(repo, { boards, values }) {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) throw fail('Unknown repository', 400);
+    const ok = (v) => typeof v === 'string' && /^[\w-]{4,100}$/.test(v);
+    const ids = (Array.isArray(boards) ? boards : []).filter(ok).slice(0, 10);
+    const vals = {};
+    for (const pid of ids) {
+      const v = values?.[pid];
+      if (v && typeof v === 'object') vals[pid] = Object.fromEntries(Object.entries(v).filter(([f, o]) => ok(f) && ok(o)).slice(0, 20));
+    }
+    const prev = this.boardPrefs(repo);
+    this.saved.boards = { ...(this.saved.boards || {}), [repo]: { boards: ids, values: vals, recent: mru(prev?.recent, ids, 10) } };
+    await this.persist();
+  }
+
+  /** Repositories the token can reach: recently used first, then most recently updated. */
   async repos() {
+    const recent = this.saved.recentRepos?.length ? this.saved.recentRepos : [this.saved.defaultRepo].filter(Boolean);
+    return byRecent(await this.allRepos(), recent, (r) => r.fullName);
+  }
+
+  async allRepos() {
     const out = [];
     let url = '/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member';
     for (let page = 0; url && page < 5; page++) {
@@ -177,7 +207,8 @@ export class GitHub {
         out.push(shape(p, linked));
       }
     }
-    return { projects: out, error: out.length ? null : warning };
+    const saved = this.boardPrefs(fullName);
+    return { projects: byRecent(out, saved?.recent, (p) => p.id), error: out.length ? null : warning, saved };
   }
 
   /**
@@ -223,6 +254,20 @@ export class GitHub {
     const { data } = await this.request('POST', `/repos/${repo}/issues`, payload);
     return { number: data.number, url: data.html_url, repo, createdAt: data.created_at, nodeId: data.node_id };
   }
+}
+
+/** Most recent first: `used` moved to the front of `list`, no repeats, at most `max`. */
+function mru(list, used, max) {
+  const out = [...used];
+  for (const x of Array.isArray(list) ? list : []) if (!out.includes(x)) out.push(x);
+  return out.slice(0, max);
+}
+
+/** Items in `recent` order first (most recent on top), the rest keep their order. */
+function byRecent(items, recent, key) {
+  const rank = new Map((Array.isArray(recent) ? recent : []).map((k, i) => [k, i]));
+  const r = (x) => (rank.has(key(x)) ? rank.get(key(x)) : Infinity);
+  return items.map((x, i) => [x, i]).sort((a, b) => r(a[0]) - r(b[0]) || a[1] - b[1]).map(([x]) => x);
 }
 
 /** Split a Markdown report into an issue title ("# Title" line) and body. */

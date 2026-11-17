@@ -27,6 +27,7 @@
         <a href="#drive"><span class="icon" data-icon="cloud-check"></span>Google Drive<span class="badge" id="navDrive"></span></a>
         <a href="#ai"><span class="icon" data-icon="sparkle"></span>AI reports<span class="badge" id="navAi"></span></a>
         <a href="#github"><span class="icon" data-icon="github-logo"></span>GitHub<span class="badge" id="navGh"></span></a>
+        <a href="#tools"><span class="icon" data-icon="plugs-connected"></span>More tools<span class="badge" id="navTools"></span></a>
         <a href="#shortcuts"><span class="icon" data-icon="keyboard"></span>Shortcuts</a>
         <a href="#about"><span class="icon" data-icon="info"></span>About</a>
       </nav>
@@ -39,7 +40,7 @@
           <div class="card">
             <label class="row">
               <span class="row-text"><strong>Your name</strong><small>Shown as the author on what you record.</small></span>
-              <input class="input" id="reporterName" type="text" autocomplete="name" placeholder="e.g. Ramesh" />
+              <input class="input" id="reporterName" type="text" autocomplete="name" placeholder="e.g. Jane" />
             </label>
             <div class="row">
               <span class="row-text"><strong>Appearance</strong><small>Light, dark, or the same as Windows.</small></span>
@@ -130,6 +131,13 @@
             </label>
             <div class="actions"><button class="btn ghost sm" id="ghRemove" hidden>Disconnect GitHub</button></div>
           </div>
+        </section>
+
+        <!-- Jira, GitLab, Slack, Notion -->
+        <section class="sec needs-server" id="tools">
+          <h2>More tools</h2>
+          <p class="lead">Send recordings and screenshots to Jira, GitLab, Slack or Notion. Each takes about a minute: make a token, paste it here.</p>
+          <div class="tool-cards" id="toolCards"></div>
         </section>
 
         <!-- Shortcuts -->

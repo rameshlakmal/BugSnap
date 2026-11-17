@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BugSnap",
   "short_name": "BugSnap",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "description": "Record a tab or your screen with console logs, network logs and user steps, then share it by link.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -72,7 +72,7 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "Capture a screenshot"
+      "description": "Open the capture bar (screenshot or recording)"
     }
   },
   "web_accessible_resources": [

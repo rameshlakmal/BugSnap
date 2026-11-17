@@ -45,7 +45,7 @@ body { background: var(--bg); min-height: 100vh; }
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 400 14px/1.4 var(--font);
   transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
 }
-.input:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
+.input:focus { outline: none; border-color: var(--text); box-shadow: none; }
 select.input { padding: 0 10px; }
 .inline { display: flex; gap: 8px; align-items: center; }
 .inline .input { width: min(260px, 38vw); }
@@ -136,3 +136,18 @@ body.offline .needs-server .lead::after { content: " · Start the server to chan
 .theme-seg button:hover { color: var(--text); }
 .theme-seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
 .theme-seg button:focus-visible { box-shadow: var(--ring); }
+
+/* Jira, GitLab, Slack, Notion */
+.tool-cards { display: grid; gap: 12px; }
+.tool-glyph { background: color-mix(in srgb, var(--tool) 12%, var(--surface)); color: var(--tool); }
+[data-theme="dark"] .tool-glyph { color: color-mix(in srgb, var(--tool) 55%, #fff); background: color-mix(in srgb, var(--tool) 22%, var(--surface)); }
+.tool-glyph svg { fill: currentColor; }
+.tool-body[hidden] { display: none; }
+.tool-body > * + * { border-top: 1px solid var(--border); }
+.tool-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px 14px; padding: 16px 18px; }
+.tool-field { display: grid; gap: 6px; align-content: start; }
+.tool-field .input { width: 100%; }
+.tool-label { font-size: 13px; font-weight: 600; }
+.tool-field small { font-size: 12px; color: var(--faint); }
+.tool-msg { align-self: center; font-size: 13px; color: var(--muted); }
+.tool-msg.bad { color: var(--live); }

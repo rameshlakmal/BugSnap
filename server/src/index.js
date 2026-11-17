@@ -10,15 +10,32 @@ import { Drive } from './drive.js';
 import { ReportWriter, reportContext } from './ai.js';
 import { GitHub, splitReport } from './github.js';
 import { Auth } from './auth.js';
+import { SetupStore, guessPlayerUrl, checkPlayer } from './setup.js';
+import { Integrations } from './integrations.js';
 
 const storage = new LocalStorage(config.dataDir);
 await storage.init();
 const drive = new Drive({ ...config.google, dataDir: config.dataDir, port: config.port, viewerUrl: config.viewerUrl });
 await drive.load();
+// The setup page (/setup) holds each person's own Google app, API key and player address.
+const setup = new SetupStore({
+  dataDir: config.dataDir,
+  env: { googleClientId: config.google.clientId, googleClientSecret: config.google.clientSecret, driveApiKey: config.driveApiKey, viewerUrl: config.viewerUrl },
+});
+await setup.load();
+function applySetup() {
+  const local = setup.saved.storage === 'local';
+  drive.clientId = local ? '' : setup.get('googleClientId');
+  drive.clientSecret = local ? '' : setup.get('googleClientSecret');
+  drive.viewerUrl = setup.get('viewerUrl').replace(/\/+$/, '');
+}
+applySetup();
 const writer = new ReportWriter({ command: config.claudePath, model: config.aiModel, dataDir: config.dataDir, envApiKey: config.anthropicApiKey });
 await writer.load();
 const github = new GitHub({ dataDir: config.dataDir, envToken: config.githubToken });
 await github.load();
+const integrations = new Integrations({ dataDir: config.dataDir });
+await integrations.load();
 const auth = new Auth({ dataDir: config.dataDir, required: config.requireLogin, legacyToken: config.uploadToken });
 await auth.load();
 
@@ -588,6 +605,20 @@ async function uploadToDrive(id) {
 // The reserved link works from the start; it shows "uploading" until the video is there.
 const shareUrlOf = (r) => r.drive?.shareUrl || null;
 
+/**
+ * The record with its public Drive link, reserving one now if it has none yet (a GitHub issue
+ * or report opened right after a capture can be faster than the background reservation).
+ * Without Drive (or if Google fails) the local player link is the only one there is.
+ */
+async function withPublicLink(record) {
+  if (record.drive?.shareUrl || !drive.connected) return record;
+  await (reservations.get(record.id) || reserveDriveLink(record));
+  const fresh = await storage.get(record.id);
+  if (fresh.drive?.shareUrl && fresh.status === 'ready' && !['pending', 'uploading', 'done'].includes(fresh.drive.status)) queueDriveUpload(fresh.id);
+  return fresh;
+}
+const linkOf = (record) => record.drive?.shareUrl || viewerUrl(record.id);
+
 app.get('/auth/google', localOnly, (req, res, next) => {
   try {
     res.redirect(drive.authUrl());
@@ -599,11 +630,40 @@ app.get('/auth/google', localOnly, (req, res, next) => {
 app.get('/auth/google/callback', localOnly, async (req, res) => {
   try {
     await drive.handleCallback({ code: req.query.code, state: req.query.state, error: req.query.error });
-    res.redirect(`${config.publicBaseUrl}/settings?connected=1`);
+    res.redirect(`${config.publicBaseUrl}/${setup.saved.finished ? 'settings' : 'setup'}?connected=1`);
   } catch (err) {
-    res.redirect(`${config.publicBaseUrl}/settings?error=${encodeURIComponent(err.message)}`);
+    res.redirect(`${config.publicBaseUrl}/${setup.saved.finished ? 'settings' : 'setup'}?error=${encodeURIComponent(err.message)}`);
   }
 });
+
+// ---------------------------------------------------------------- setup page
+
+app.get('/api/setup', localOnly, async (req, res) => {
+  res.json({ ...setup.status(), drive: drive.status(), guess: await guessPlayerUrl(), port: config.port });
+});
+
+app.put('/api/setup', localOnly, express.json({ limit: '16kb' }), async (req, res, next) => {
+  try {
+    const before = { id: setup.get('googleClientId'), storage: setup.saved.storage };
+    const patch = { ...req.body };
+    // An empty secret field means "keep the saved one".
+    if (patch.googleClientSecret === '') delete patch.googleClientSecret;
+    await setup.update(patch);
+    // A different Google app can't use the old sign-in: start over.
+    const changedApp = setup.get('googleClientId') !== before.id || (setup.saved.storage === 'local' && before.storage !== 'local');
+    if (changedApp && drive.connected) await drive.disconnect();
+    applySetup();
+    res.json({ ...setup.status(), drive: drive.status() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/setup/check-player', localOnly, async (req, res) => {
+  res.json(await checkPlayer(setup.get('viewerUrl'), setup.get('driveApiKey')));
+});
+
+app.get('/setup', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'setup.html')));
 
 app.get('/api/drive', localOnly, (req, res) => res.json(drive.status()));
 
@@ -696,7 +756,7 @@ app.post('/api/recordings/:id/report', localOrToken, express.json({ limit: '64kb
     if (record.status !== 'ready') return res.status(409).json({ error: 'The recording is still processing. Try again in a moment.' });
     const status = await writer.status();
     if (!status.available) return res.status(503).json({ error: `${status.error} Change it in BugSnap Settings → AI reports.` });
-    const link = record.drive?.shareUrl || viewerUrl(record.id);
+    const link = linkOf(await withPublicLink(record));
     const out = await writer.write(reportContext({ record, events: await storage.getEvents(record.id), link, description: record.meta.description, kind }));
     const saved = await storage.updateWith(record.id, (r) => {
       r.report = { markdown: out.markdown, kind, generatedAt: new Date().toISOString(), model: out.model, provider: out.provider };
@@ -753,6 +813,17 @@ app.get('/api/github/meta', localOnly, async (req, res, next) => {
   }
 });
 
+// Remember the boards and dropdown values used with a repository (kept on the server, so every
+// site the dialog opens on shares them; browser storage inside the overlay is per site).
+app.put('/api/github/boards', localOnly, express.json({ limit: '16kb' }), async (req, res, next) => {
+  try {
+    await github.setBoardPrefs(String(req.body?.repo || ''), req.body || {});
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.get('/api/github/projects', localOnly, async (req, res, next) => {
   try {
     res.json(await github.projects(String(req.query.repo || '')));
@@ -764,12 +835,12 @@ app.get('/api/github/projects', localOnly, async (req, res, next) => {
 // What the issue form starts with: the saved report split into title and body, with the link.
 app.get('/api/recordings/:id/github/draft', localOrToken, async (req, res, next) => {
   try {
-    const record = await storage.get(req.params.id);
-    const link = record.drive?.shareUrl || viewerUrl(record.id);
+    const record = await withPublicLink(await storage.get(req.params.id));
+    const link = linkOf(record);
     const { title, body } = splitReport(record.report?.markdown, record.meta?.title);
     const label = record.type === 'screenshot' ? 'Screenshot' : 'Recording';
     const withLink = withImages(body.includes(link) ? body : [body, `**${label}:** ${link}`].filter(Boolean).join('\n\n'), await issueImages(record));
-    res.json({ title, body: withLink, hasReport: Boolean(record.report?.markdown), repo: github.status().defaultRepo, issues: record.github || [] });
+    res.json({ title, body: withLink, link, hasReport: Boolean(record.report?.markdown), repo: github.status().defaultRepo, issues: record.github || [] });
   } catch (err) {
     next(err);
   }
@@ -777,18 +848,123 @@ app.get('/api/recordings/:id/github/draft', localOrToken, async (req, res, next)
 
 app.post('/api/recordings/:id/github', localOrToken, express.json({ limit: '128kb' }), async (req, res, next) => {
   try {
-    const record = await storage.get(req.params.id);
+    const record = await withPublicLink(await storage.get(req.params.id));
     // Screenshots (and frames captured from a recording) go into the issue as images, not links.
     const images = await issueImages(record, { wait: true });
-    const { nodeId, ...issue } = await github.createIssue({ ...(req.body || {}), body: withImages(req.body?.body, images) });
+    // A body written before the public link existed still has the local one: swap it in.
+    const local = viewerUrl(record.id);
+    const body = String(req.body?.body || '').split(local).join(linkOf(record));
+    const { nodeId, ...issue } = await github.createIssue({ ...(req.body || {}), body: withImages(body, images) });
     await github.setDefaultRepo(issue.repo);
     // Boards are set right after the issue exists (GitHub cannot do both in one call).
-    const boards = Array.isArray(req.body?.projects) && req.body.projects.length && nodeId ? await github.addToProjects(nodeId, req.body.projects) : [];
+    const picked = Array.isArray(req.body?.projects) ? req.body.projects : [];
+    const boards = picked.length && nodeId ? await github.addToProjects(nodeId, picked) : [];
+    // Boards used for this issue are picked again (and listed first) next time.
+    await github.setBoardPrefs(issue.repo, { boards: picked.map((b) => b?.projectId), values: Object.fromEntries(picked.map((b) => [b?.projectId, b?.values])) }).catch(() => {});
     const saved = await storage.updateWith(record.id, (r) => {
       r.github = [issue, ...(r.github || [])].slice(0, 10);
     });
     if (saved.drive?.status === 'done' && drive.connected) queueManifestRefresh(saved.id);
     res.status(201).json({ ...issue, boards });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------- Jira, GitLab, Slack, Notion
+
+app.get('/api/integrations', localOrToken, (req, res) => res.json(integrations.status()));
+
+app.put('/api/integrations/:tool', localOnly, express.json({ limit: '16kb' }), async (req, res, next) => {
+  try {
+    const { defaults, ...creds } = req.body || {};
+    const status = Object.keys(creds).length ? await integrations.connect(req.params.tool, creds) : integrations.status()[req.params.tool];
+    if (defaults) await integrations.setDefaults(req.params.tool, defaults);
+    res.json(defaults ? integrations.status()[req.params.tool] : status);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/integrations/:tool', localOnly, async (req, res, next) => {
+  try {
+    await integrations.disconnect(req.params.tool);
+    res.json(integrations.status()[req.params.tool]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/integrations/:tool/targets', localOrToken, async (req, res, next) => {
+  try {
+    res.json(await integrations.targets(req.params.tool, req.query.q));
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/integrations/:tool/meta', localOrToken, async (req, res, next) => {
+  try {
+    res.json(await integrations.meta(req.params.tool, req.query.target));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Settings: "Send a test message" for Slack (a webhook can't be checked any other way).
+app.post('/api/integrations/slack/test', localOnly, async (req, res, next) => {
+  try {
+    await integrations.send('slack', { title: 'BugSnap is connected', markdown: 'Bug reports sent from BugSnap will show up here.', link: '', images: [] });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Screenshot files on this computer for a capture: the screenshot itself, or a recording's frames. */
+async function localImages(record) {
+  if (record.type === 'screenshot') {
+    const p = storage.imagePath(record.id);
+    return p ? [{ name: 'screenshot', path: p }] : [];
+  }
+  const out = [];
+  for (const f of record.frames?.length ? await frameShotsOf(record) : []) {
+    const p = storage.imagePath(f.id);
+    if (p) out.push({ name: `frame-${clock(f.at).replace(/:/g, 'm')}s`, path: p });
+  }
+  return out;
+}
+
+// Title and description to start from: the AI report when there is one, plus the share link.
+app.get('/api/recordings/:id/draft', localOrToken, async (req, res, next) => {
+  try {
+    const record = await withPublicLink(await storage.get(req.params.id));
+    const link = linkOf(record);
+    const { title, body } = splitReport(record.report?.markdown, record.meta?.title);
+    const label = record.type === 'screenshot' ? 'Screenshot' : 'Recording';
+    res.json({ title, body: body.includes(link) ? body : [body, `**${label}:** ${link}`].filter(Boolean).join('\n\n'), link, hasReport: Boolean(record.report?.markdown), sent: record.sent || [], integrations: integrations.status() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/recordings/:id/send/:tool', localOrToken, express.json({ limit: '128kb' }), async (req, res, next) => {
+  try {
+    const tool = req.params.tool;
+    const record = await withPublicLink(await storage.get(req.params.id));
+    const link = linkOf(record);
+    // A description written before the public link existed still has the local one: swap it in.
+    let markdown = String(req.body?.body || '').split(viewerUrl(record.id)).join(link);
+    // Notion shows images from their Drive address; Jira and GitLab get the files themselves.
+    if (tool === 'notion') markdown = withImages(markdown, await issueImages(record, { wait: true }));
+    const images = tool === 'jira' || tool === 'gitlab' ? await localImages(record) : [];
+    const title = String(req.body?.title || '').trim() || record.meta?.title || 'Bug report';
+    const result = await integrations.send(tool, { target: String(req.body?.target || ''), title, markdown, images, link, extra: req.body?.extra || {} });
+    const entry = { tool, ...result, title, at: new Date().toISOString() };
+    await storage.updateWith(record.id, (r) => {
+      r.sent = [entry, ...(r.sent || [])].slice(0, 20);
+    });
+    res.status(201).json({ ...entry, link });
   } catch (err) {
     next(err);
   }
@@ -1062,7 +1238,7 @@ const server = app.listen(config.port, config.host, () => {
   if (auth.enabled) console.log(auth.users.length ? `Sign-in: on (${auth.users.length} user${auth.users.length === 1 ? '' : 's'})` : 'Sign-in: on, but no users yet. Add one: npm run user add <name>');
   else if (config.host !== '127.0.0.1') console.warn('Sign-in is off and the server accepts other machines. Set REQUIRE_LOGIN=1 and add users: npm run user add <name>');
   const d = drive.status();
-  if (!d.configured) console.log('Google Drive: not set up, recordings stay on this computer. See SETUP-GOOGLE-DRIVE.md');
+  if (!d.configured) console.log(`Google Drive: not set up, recordings stay on this computer. Set it up at ${config.publicBaseUrl}/setup`);
   else if (!d.connected) console.log("Google Drive: not connected. Connect it in BugSnap Settings (click the extension icon, then the gear).");
   else console.log(`Google Drive: connected${d.email ? ` as ${d.email}` : ''}${d.viewerUrl ? '' : ' (VIEWER_URL not set: links point to Drive instead of the player)'}`);
 });

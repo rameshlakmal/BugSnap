@@ -11,7 +11,8 @@
     "smoke": "node test/smoke.js",
     "build:viewer": "node --env-file-if-exists=.env scripts/build-viewer.js",
     "test:drive": "node test/drive-mock.js",
-    "user": "node --env-file-if-exists=.env scripts/user.js"
+    "user": "node --env-file-if-exists=.env scripts/user.js",
+    "test:integrations": "node test/integrations-mock.js"
   },
   "engines": {
     "node": ">=22.9"

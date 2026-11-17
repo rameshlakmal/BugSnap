@@ -92,7 +92,7 @@ globalThis.setTimeout = (fn, ms, ...a) => realSetTimeout(fn, Math.min(ms, 5), ..
 const drive = new Drive({ clientId: 'cid', clientSecret: 'secret', dataDir: dir, port: 4800, viewerUrl: 'https://me.github.io/bugsnap-viewer/' });
 drive.saved = { refreshToken: 'refresh', folderId: null };
 
-const record = { id: 'AbCdEf1234', createdAt: '2026-11-07T10:00:00Z', meta: { title: 'Checkout: fails / "Pricing"', reporter: 'Ramesh' }, startedAt: 1, durationMs: 5000, chunks: 9, processing: {}, drive: {} };
+const record = { id: 'AbCdEf1234', createdAt: '2026-11-07T10:00:00Z', meta: { title: 'Checkout: fails / "Pricing"', reporter: 'Jane' }, startedAt: 1, durationMs: 5000, chunks: 9, processing: {}, drive: {} };
 const events = [{ type: 'action', ts: 2, text: 'Clicks the "Buy" button' }];
 
 // 1. Reserve at start: link exists before any upload.

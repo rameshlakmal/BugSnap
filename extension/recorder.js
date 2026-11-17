@@ -1,7 +1,7 @@
-// Recorder window for screen / window capture. getDisplayMedia needs a click in a
-// visible page, so this window hosts the source choice, Chrome's picker and the recording.
-// It fits itself to its content, grows only while Chrome's picker is open (the picker is
-// drawn inside this window), and is minimised once capture starts.
+// Recorder window for screen / window capture. Chrome draws its screen picker inside a visible
+// page, so this window hosts the picker and then the recording. It opens straight into Chrome's
+// picker (which already asks screen, window or tab, and system audio), and shrinks to the live
+// controls once sharing starts. Our own source chooser only comes back to retry after an error.
 import { connectRecorder } from './recorder-host.js';
 
 const $ = (id) => document.getElementById(id);
@@ -99,6 +99,11 @@ function onUi(next, info = {}) {
   } else if (next === 'discarded') {
     // The background closes this window after it has cleared the recording state.
     state = 'discarded';
+  } else if (next === 'error' && info.cancelled) {
+    // Closed Chrome's picker: nothing to record, close this window.
+    state = 'discarded';
+    chrome.runtime.sendMessage({ type: 'control', action: 'discard' }).catch(() => {});
+    return;
   } else if (next === 'error') {
     show('pick');
     $('choose').disabled = false;
@@ -117,10 +122,13 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 paintIcons();
-requestAnimationFrame(() => fitWindow());
 
 connectRecorder({ kind: 'window', onUi })
   .then((host) => {
+    // Straight to Chrome's picker: no second "what do you want to record?" step.
+    state = 'waiting';
+    show('waiting');
+    host.start({ surface: 'monitor', includeAudio: true });
     $('choose').addEventListener('click', async () => {
       showError('');
       $('choose').disabled = true;

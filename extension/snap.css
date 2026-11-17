@@ -39,16 +39,61 @@ canvas.text-mode { cursor: text; }
 .empty .icon { width: 34px; height: 34px; color: var(--faint); }
 .empty strong { color: var(--text); font-size: 16px; }
 
+/* Text is edited in place: the box is sized, coloured and scaled like the text on the canvas. */
 .text-input {
-  position: fixed; z-index: 20; min-width: 160px; padding: 6px 10px; border-radius: 8px; border: 2px solid var(--text);
-  font: 600 16px/1.2 var(--font); background: #fff; color: var(--text); box-shadow: var(--shadow-md); outline: none;
+  position: fixed; z-index: 20; margin: 0; border: 0; resize: none; overflow: hidden; white-space: pre;
+  font-family: var(--font); outline: 2px dashed color-mix(in srgb, var(--text) 55%, transparent); outline-offset: 3px;
+  box-sizing: border-box; caret-color: currentColor;
 }
+
+/* Shapes dropdown in the toolbar */
+.shape-pick { position: relative; display: inline-flex; }
+.tool.shape-btn { width: 46px; grid-template-columns: auto auto; gap: 1px; padding-left: 3px; }
+.tool.shape-btn .caret { width: 10px; height: 10px; display: inline-flex; opacity: .7; }
+.tool.shape-btn .caret svg { width: 100%; height: 100%; fill: currentColor; }
+.shape-menu { left: 0; right: auto; min-width: 200px; transform-origin: top left; }
+.shape-menu .grow { flex: 1; }
+.shape-menu kbd { font: 600 11px/1 var(--font); padding: 3px 5px; border-radius: 5px; background: var(--surface-2); color: var(--faint); }
+.shape-menu button.on { background: var(--surface-2); }
+.shape-menu button.on .icon { color: var(--text); }
+
+/* Floating style bar over the selected text */
+.text-bar {
+  position: fixed; z-index: 25; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+  animation: pop-in .14s var(--ease);
+}
+.text-bar[hidden] { display: none; }
+.text-bar .tb { all: unset; box-sizing: border-box; position: relative; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: var(--muted); }
+.text-bar .tb:hover { background: var(--surface-2); color: var(--text); }
+.text-bar .tb:focus-visible { box-shadow: var(--ring); }
+.text-bar .tb[aria-pressed="true"] { background: var(--surface-3); color: var(--text); }
+.text-bar .tb .icon { width: 17px; height: 17px; }
+.text-bar .tb.danger:hover { color: var(--live); background: var(--live-soft); }
+.text-bar .fs { min-width: 30px; text-align: center; font: 600 13px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--text); }
+.text-bar .tdiv { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+.text-bar .pick { width: 36px; }
+.text-bar .pick .icon { margin-top: -5px; }
+.text-bar .chip { position: absolute; left: 9px; right: 9px; bottom: 5px; height: 4px; border-radius: 2px; background: var(--c, transparent); box-shadow: 0 0 0 1px var(--border-strong); }
+.text-bar .chip.none { background: repeating-linear-gradient(135deg, var(--surface) 0 3px, var(--live) 3px 4px); }
+.swatches {
+  position: absolute; top: calc(100% + 6px); display: grid; grid-template-columns: repeat(5, 26px); gap: 6px; padding: 8px;
+  border-radius: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg); animation: pop-in .14s var(--ease);
+}
+.swatches[hidden] { display: none; }
+.swatches .sw { all: unset; box-sizing: border-box; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; background: var(--c); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); display: grid; place-items: center; color: var(--muted); }
+.swatches .sw:hover { transform: scale(1.1); }
+.swatches .sw.on { box-shadow: 0 0 0 2px var(--text); }
+.swatches .sw .icon { width: 16px; height: 16px; }
+.swatches .sw.none { background: var(--surface); }
+.swatches label.sw { position: relative; overflow: hidden; background: conic-gradient(#e5484d, #f5a524, #16a34a, #2563eb, #8e4ec6, #e5484d); }
+.swatches label.sw input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 
 .side { border-left: 1px solid var(--border); min-height: 0; overflow: auto; }
 .form, .done { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 100%; }
 .form .field.grow { flex: 1; display: flex; flex-direction: column; }
 .form textarea { flex: 1; min-height: 120px; resize: none; font: 400 14px/1.5 var(--font); padding: 10px 12px; border-radius: var(--r-field); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); }
-.form textarea:focus, .done input:focus { outline: none; border-color: var(--text); box-shadow: var(--ring); }
+.form textarea:focus, .done input:focus { outline: none; border-color: var(--text); box-shadow: none; }
 .segmented { display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; border-radius: var(--r-ctl); background: var(--surface-2); border: 1px solid var(--border); }
 .segmented button { all: unset; cursor: pointer; font: 600 13px/1 var(--font); padding: 8px 12px; border-radius: 7px; color: var(--muted); }
 .segmented button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
@@ -134,7 +179,7 @@ canvas.dragging { cursor: grabbing; }
 
 /* Right side: the "Create a link / GitHub issue" panel from the server */
 .side { display: flex; flex-direction: column; overflow: hidden; }
-@media (min-width: 901px) { .layout { grid-template-columns: minmax(0, 1fr) 400px; } }
+@media (min-width: 901px) { .layout { grid-template-columns: minmax(0, 1fr) clamp(420px, 33vw, 520px); } }
 .side > .alert { margin: 12px 14px 0; flex: none; }
 .panel { flex: 1; width: 100%; min-height: 0; border: 0; display: block; background: var(--surface); }
 .panel-wait { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
