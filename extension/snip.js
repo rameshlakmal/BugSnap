@@ -137,13 +137,13 @@
   // The frozen capture. Drawn on a canvas so the page's Content Security Policy (img-src) can't block it.
   (async () => {
     try {
-      const [{ snapPending }, { rec }] = await Promise.all([chrome.storage.session.get('snapPending'), chrome.storage.session.get('rec')]);
+      const [reply, { rec }] = await Promise.all([chrome.runtime.sendMessage({ type: 'snip:image' }), chrome.storage.session.get('rec')]);
       if (rec) {
         recBusy = true;
         if (mode === 'rec') mode = 'shot';
         applyMode();
       }
-      const url = snapPending?.image;
+      const url = reply?.result;
       if (!url || !window.__bugsnapSnip) return;
       const bin = atob(url.slice(url.indexOf(',') + 1));
       const bytes = new Uint8Array(bin.length);

@@ -125,7 +125,53 @@ export class GitHub {
   /** Repositories the token can reach: recently used first, then most recently updated. */
   async repos() {
     const recent = this.saved.recentRepos?.length ? this.saved.recentRepos : [this.saved.defaultRepo].filter(Boolean);
-    return byRecent(await this.allRepos(), recent, (r) => r.fullName);
+    return byRecent(await this.cached('repos', () => this.allRepos()), recent, (r) => r.fullName);
+  }
+
+  /**
+   * Listing repositories (and their labels and people) takes GitHub seconds. The last answer is
+   * returned at once and refreshed in the background, so the issue form opens without waiting.
+   */
+  cached(key, load, maxAgeMs = 60 * 1000) {
+    this.cache ||= new Map();
+    const token = this.token;
+    const hit = this.cache.get(key);
+    const fresh = () => {
+      const p = load().then(
+        (value) => {
+          if (this.token === token) this.cache.set(key, { value, at: Date.now(), token });
+          return value;
+        },
+        (err) => {
+          if (this.cache.get(key)?.pending === p) this.cache.delete(key);
+          throw err;
+        },
+      );
+      return p;
+    };
+    if (hit?.token === token && 'value' in hit) {
+      if (Date.now() - hit.at > maxAgeMs && !hit.refreshing) {
+        hit.refreshing = true;
+        fresh().catch(() => (hit.refreshing = false));
+      }
+      return Promise.resolve(hit.value);
+    }
+    if (hit?.token === token && hit.pending) return hit.pending;
+    const pending = fresh();
+    this.cache.set(key, { pending, token });
+    return pending;
+  }
+
+  /** Load the repository list now so the first issue form after a restart is quick too. */
+  warm() {
+    if (!this.token) return;
+    this.cached('repos', () => this.allRepos()).catch(() => {});
+    // The last-used repo's labels and boards too: that is the one the form opens on.
+    const repo = this.saved.defaultRepo;
+    if (repo) {
+      this.repoMeta(repo).catch(() => {});
+      this.projects(repo).catch(() => {});
+    }
   }
 
   async allRepos() {
@@ -142,6 +188,10 @@ export class GitHub {
   /** Labels, people who can be assigned, and open milestones of one repository. */
   async repoMeta(fullName) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(fullName || '')) throw fail('Unknown repository', 400);
+    return this.cached(`meta:${fullName}`, () => this.loadRepoMeta(fullName));
+  }
+
+  async loadRepoMeta(fullName) {
     const get = (p) => this.request('GET', `/repos/${fullName}${p}`).then((r) => r.data).catch(() => []);
     const [labels, assignees, milestones] = await Promise.all([get('/labels?per_page=100'), get('/assignees?per_page=100'), get('/milestones?state=open&per_page=50')]);
     return {
@@ -168,6 +218,14 @@ export class GitHub {
    */
   async projects(fullName) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(fullName || '')) throw fail('Unknown repository', 400);
+    const key = `projects:${fullName}`;
+    const out = await this.cached(key, () => this.loadProjects(fullName));
+    // A failed look-up is asked again next time rather than remembered.
+    if (out?.error && !out.projects?.length) this.cache.delete(key);
+    return out;
+  }
+
+  async loadProjects(fullName) {
     const [owner, name] = fullName.split('/');
     const P = `nodes { id title number closed url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name color } } } } }`;
     const list = `projectsV2(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) { ${P} }`;

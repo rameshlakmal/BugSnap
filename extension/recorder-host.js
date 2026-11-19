@@ -112,6 +112,12 @@ export async function connectRecorder({ kind, onUi = () => {} }) {
       cancelCountdown = null;
       if (!proceed || recorder.state !== 'prepared') return;
       const begun = recorder.begin();
+      // Keeps the background worker awake while recording: it only listens for the page's
+      // requests and navigations while a recording exists, and a sleeping worker would miss them.
+      const alive = setInterval(() => {
+        if (!['recording', 'paused', 'stopping'].includes(recorder.state)) return clearInterval(alive);
+        notify('recorder:alive');
+      }, 20000);
       onUi('recording', { startedAt: begun.startedAt, pausedMs: 0 });
       await notify('recorder:started', { id: recorder.id, viewerUrl: recorder.viewerUrl, startedAt: begun.startedAt });
     } catch (err) {

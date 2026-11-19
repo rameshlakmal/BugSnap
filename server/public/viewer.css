@@ -105,6 +105,10 @@ body.resizing .layout, body.resizing .side > * { transition: none; }
 .avatar.drive { background: var(--surface-2); color: var(--muted); }
 .avatar.drive .icon { width: 15px; height: 15px; }
 .activity strong { color: var(--text); font-weight: 600; }
+.activity .link-btn { all: unset; cursor: pointer; color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.activity .link-btn:hover { color: var(--brand); }
+.activity .link-btn:disabled { cursor: default; opacity: .6; text-decoration: none; }
+.activity .link-btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: 3px; }
 
 /* ------------------------------------------------------------ DevTools side panel */
 .side { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); background: var(--surface); transition: border-color .32s ease; }

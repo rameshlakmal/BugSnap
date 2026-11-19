@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const FIELDS = ['googleClientId', 'googleClientSecret', 'driveApiKey', 'viewerUrl', 'githubRepo', 'playerHost', 'storage', 'finished'];
+const FIELDS = ['googleClientId', 'googleClientSecret', 'driveApiKey', 'viewerUrl', 'githubRepo', 'playerHost', 'storage', 'finished', 'shareBodies'];
 const HOSTS = ['vercel', 'github', 'other'];
 
 const clean = (v, max = 400) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -41,6 +41,7 @@ export class SetupStore {
     for (const key of FIELDS) {
       if (!(key in patch)) continue;
       if (key === 'finished') this.saved.finished = Boolean(patch.finished);
+      else if (key === 'shareBodies') this.saved.shareBodies = Boolean(patch.shareBodies);
       else if (key === 'storage') this.saved.storage = patch.storage === 'local' ? 'local' : 'drive';
       else if (key === 'playerHost') this.saved.playerHost = HOSTS.includes(patch.playerHost) ? patch.playerHost : '';
       else if (key === 'viewerUrl') {

@@ -180,6 +180,8 @@ function render({ preview = null, clean = false } = {}) {
   if (!clean) updateTextBar();
 }
 
+const blurTiles = new Map();
+
 function drawBlur(s) {
   const { x, y, w, h } = norm(s);
   if (w < 2 || h < 2) return;
@@ -187,8 +189,16 @@ function drawBlur(s) {
   const block = Math.max(8, Math.round(Math.max(canvas.width, canvas.height) / 110));
   const tw = Math.max(1, Math.round(w / block));
   const th = Math.max(1, Math.round(h / block));
-  const tmp = new OffscreenCanvas(tw, th);
-  tmp.getContext('2d').drawImage(base, x, y, w, h, 0, 0, tw, th);
+  // The small pixelated copy is kept per area: redraws (every pointer move while dragging any
+  // mark) reuse it instead of shrinking the image again.
+  const key = `${base.src.length}:${x},${y},${w},${h},${tw},${th}`;
+  let tmp = blurTiles.get(key);
+  if (!tmp) {
+    tmp = new OffscreenCanvas(tw, th);
+    tmp.getContext('2d').drawImage(base, x, y, w, h, 0, 0, tw, th);
+    blurTiles.set(key, tmp);
+    if (blurTiles.size > 24) blurTiles.delete(blurTiles.keys().next().value); // forget the oldest
+  }
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(tmp, 0, 0, tw, th, x, y, w, h);
@@ -356,6 +366,7 @@ function restore(i) {
   selected = null;
   updateHistory();
   render();
+  marksChanged(); // undo and redo are changes to save too
 }
 
 function updateHistory() {
@@ -1016,12 +1027,24 @@ async function copyText(text) {
 // this tab is closed. Every change (marks, title, description) saves again a moment later.
 
 let server = null; // { url, auth }
+// Where background.js leaves a new capture's image (see putSnapImage there).
+const SNAP_CACHE = 'bugsnap-snap';
+const SNAP_DRAFT_URL = 'https://bugsnap.invalid/draft';
 let rid = null; // the screenshot's id on the server
 let viewerUrl = null;
 let shareUrl = null;
 let saveTimer = null;
 let saving = null; // promise of the save in progress
 let dirty = false;
+// Every change to the marks counts up; a save with nothing new is skipped (each one re-encodes
+// and uploads the whole PNG, and the server then rebuilds the thumbnail and updates Drive).
+let version = 0;
+let savedVersion = 0;
+
+function marksChanged() {
+  version++;
+  scheduleSave();
+}
 
 async function settings() {
   const { settings: s } = await chrome.storage.local.get('settings');
@@ -1057,17 +1080,23 @@ async function saveNow({ publishNow = false } = {}) {
     return saving;
   }
   dirty = false;
+  if (version === savedVersion) return setState('saved', 'All changes saved');
+  const v = version;
   setState('saving', 'Saving…');
   showError('');
   saving = (async () => {
     try {
-      await call('PUT', `/api/recordings/${rid}/image`, await exportBlob(), { 'Content-Type': 'image/png' });
-      await call('PUT', `/api/recordings/${rid}/annotations`, JSON.stringify({ shapes }), { 'Content-Type': 'application/json' });
+      const marks = JSON.stringify({ shapes });
+      await Promise.all([
+        exportBlob().then((png) => call('PUT', `/api/recordings/${rid}/image`, png, { 'Content-Type': 'image/png' })),
+        call('PUT', `/api/recordings/${rid}/annotations`, marks, { 'Content-Type': 'application/json' }),
+      ]);
       // Title, description and type are edited in the panel on the right (saved by the server).
       await call('POST', `/api/recordings/${rid}/finalize-shot${publishNow ? '?now=1' : ''}`, JSON.stringify({
         width: canvas.width,
         height: canvas.height,
       }), { 'Content-Type': 'application/json' });
+      savedVersion = Math.max(savedVersion, v);
       setState('saved', 'All changes saved');
     } catch (err) {
       setState('error', "Couldn't save");
@@ -1094,13 +1123,20 @@ function scheduleSave() {
 async function createOnServer() {
   const s = await settings();
   const title = $('title').value.trim() || draft.meta.title || 'Screenshot';
+  // The location lookup can take seconds: it is added after the share panel is up.
+  const envNow = collectEnvironment({ captureLocation: false }).catch(() => ({}));
+  const original = fetch(draft.image).then((r) => r.blob());
   const created = await call('POST', '/api/recordings', JSON.stringify({ meta: { ...draft.meta, title, reporter: s.reporterName || undefined } }), { 'Content-Type': 'application/json' });
   rid = created.id;
   viewerUrl = created.viewerUrl;
   // Keep the unmarked capture so marks stay editable later (it never leaves this computer).
-  await call('PUT', `/api/recordings/${rid}/original`, await (await fetch(draft.image)).blob(), { 'Content-Type': 'image/png' });
-  await call('PUT', `/api/recordings/${rid}/image`, await exportBlob(), { 'Content-Type': 'image/png' });
-  const env = await collectEnvironment({ captureLocation: s.captureLocation }).catch(() => ({}));
+  // Both uploads at once; with no marks yet the shared image is the capture itself.
+  const shotVersion = version; // marks added from here on are saved by the autosave
+  const [env] = await Promise.all([
+    envNow,
+    original.then((blob) => call('PUT', `/api/recordings/${rid}/original`, blob, { 'Content-Type': 'image/png' })),
+    (shapes.length ? exportBlob() : original).then((blob) => call('PUT', `/api/recordings/${rid}/image`, blob, { 'Content-Type': 'image/png' })),
+  ]);
   await call('POST', `/api/recordings/${rid}/finalize-shot?now=1`, JSON.stringify({
     title,
     description: $('desc').value,
@@ -1109,10 +1145,24 @@ async function createOnServer() {
     height: canvas.height,
     env,
   }), { 'Content-Type': 'application/json' });
+  savedVersion = shotVersion;
   await chrome.storage.session.remove('snapDraft');
+  await caches.open(SNAP_CACHE).then((c) => c.delete(SNAP_DRAFT_URL)).catch(() => {});
   // From now on this tab edits that screenshot (reloading keeps working).
   window.history.replaceState(null, '', `snap.html?id=${encodeURIComponent(rid)}`);
   chrome.runtime.sendMessage({ type: 'snap:saved', id: rid, viewerUrl, shareUrl: null, title }).catch(() => {});
+  if (s.captureLocation) addLocation(rid);
+}
+
+/** Add the location to a saved screenshot's details (nothing else is changed). */
+async function addLocation(id) {
+  const env = await collectEnvironment({ captureLocation: true }).catch(() => null);
+  if (!env?.location) return;
+  await call('POST', `/api/recordings/${id}/finalize-shot`, JSON.stringify({
+    width: canvas.width,
+    height: canvas.height,
+    env: { location: env.location },
+  }), { 'Content-Type': 'application/json' }).catch(() => {});
 }
 
 /** The public link (reserved on Drive in the background); shown as soon as it exists. */
@@ -1134,11 +1184,9 @@ async function fetchLink() {
 const basePush = pushHistory;
 pushHistory = function () {
   basePush();
-  scheduleSave();
+  marksChanged();
 };
-$('title').addEventListener('input', scheduleSave);
-$('desc').addEventListener('input', scheduleSave);
-document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', scheduleSave));
+// Title, description and type are saved by the panel on the right, not by this editor's autosave.
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
   saveNow({ publishNow: true });
@@ -1355,14 +1403,19 @@ function loadImage(src) {
     if (editId) {
       // Editing a saved screenshot: original image + its marks, so everything stays editable.
       rid = editId;
-      const rec = await call('GET', `/api/recordings/${encodeURIComponent(rid)}?events=0`);
+      // The details, the original image and the marks are fetched together.
+      const [rec, imgRes, ann] = await Promise.all([
+        call('GET', `/api/recordings/${encodeURIComponent(rid)}?events=0`),
+        fetch(`${server.url}/api/recordings/${rid}/original`, { headers: server.auth, cache: 'no-store' }).catch(() => null),
+        call('GET', `/api/recordings/${rid}/annotations`).catch(() => ({ shapes: [] })),
+      ]);
       if (rec.type !== 'screenshot') throw new Error('This is not a screenshot.');
       viewerUrl = rec.viewerUrl;
       draft = { meta: rec.meta || {} };
-      const imgRes = await fetch(`${server.url}/api/recordings/${rid}/original`, { headers: server.auth, cache: 'no-store' });
-      if (!imgRes.ok) throw new Error('The original image is not on this server.');
-      await loadImage(URL.createObjectURL(await imgRes.blob()));
-      const ann = await call('GET', `/api/recordings/${rid}/annotations`).catch(() => ({ shapes: [] }));
+      if (!imgRes?.ok) throw new Error('The original image is not on this server.');
+      const imgUrl = URL.createObjectURL(await imgRes.blob());
+      await loadImage(imgUrl);
+      URL.revokeObjectURL(imgUrl); // decoded into the image: the URL is no longer needed
       canvas.width = base.naturalWidth;
       canvas.height = base.naturalHeight;
       shapes = Array.isArray(ann.shapes) ? ann.shapes : [];
@@ -1381,8 +1434,10 @@ function loadImage(src) {
     }
 
     const { snapDraft } = await chrome.storage.session.get('snapDraft');
-    if (!snapDraft) return showEmpty('Take one with the BugSnap panel or Alt+Shift+S. Saved ones can be edited from Recordings.');
-    draft = snapDraft;
+    // The image itself waits in the extension's cache (kept until it is saved on the server).
+    const drafted = snapDraft && (await caches.open(SNAP_CACHE).then((c) => c.match(SNAP_DRAFT_URL)).catch(() => null));
+    if (!snapDraft || !drafted) return showEmpty('Take one with the BugSnap panel or Alt+Shift+S. Saved ones can be edited from Recordings.');
+    draft = { ...snapDraft, image: URL.createObjectURL(await drafted.blob()) };
     await loadImage(draft.image);
     canvas.width = base.naturalWidth;
     canvas.height = base.naturalHeight;
@@ -1397,7 +1452,7 @@ function loadImage(src) {
     setState('saved', 'Saved');
     fetchLink();
     mountPanel();
-    if (dirty || shapes.length) scheduleSave();
+    if (version !== savedVersion) scheduleSave();
   } catch (err) {
     setState('error', "Couldn't save");
     $('panelWait').hidden = true;

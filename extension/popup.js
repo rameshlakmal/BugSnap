@@ -14,6 +14,12 @@ if (inPanel) {
   const report = () => parent.postMessage({ source: 'screenrec-panel', type: 'height', value: Math.ceil(document.body.getBoundingClientRect().height) }, '*');
   new ResizeObserver(report).observe(document.body);
   addEventListener('keydown', (e) => e.key === 'Escape' && closeUi());
+} else {
+  // Opened as Chrome's plain popup (the fallback for pages that block the in-page panel): clear
+  // the fallback so the next click tries the in-page panel again.
+  chrome.tabs.query({ active: true, currentWindow: true })
+    .then(([tab]) => tab && chrome.action.setPopup({ tabId: tab.id, popup: '' }))
+    .catch(() => {});
 }
 
 // Bundled Phosphor icons into [data-icon] slots.
@@ -78,9 +84,11 @@ function drawThumb(entry, serverUrl) {
 }
 
 async function render() {
-  const { rec } = await chrome.storage.session.get('rec');
-  const { lastResult, lastError } = await chrome.storage.local.get(['lastResult', 'lastError']);
-  const settings = await loadSettings();
+  const [{ rec }, { lastResult, lastError }, settings] = await Promise.all([
+    chrome.storage.session.get('rec'),
+    chrome.storage.local.get(['lastResult', 'lastError']),
+    loadSettings(),
+  ]);
 
   const busy = !!rec;
   $('idle').hidden = busy;
@@ -147,9 +155,13 @@ async function openLibrary() {
   closeUi();
 }
 
-function openLast() {
+/** Open the last capture at its share link; the local page only when there is no share link. */
+async function openLast() {
   if (!lastUrl) return;
-  send({ type: 'open:url', url: lastUrl }).then(() => closeUi(), (e) => showError(e.message));
+  const { lastResult } = await chrome.storage.local.get('lastResult');
+  let url = lastResult?.shareUrl;
+  if (!url && lastResult?.id) url = (await send({ type: 'share:link', id: lastResult.id }).catch(() => null))?.url;
+  send({ type: 'open:url', url: url || lastUrl }).then(() => closeUi(), (e) => showError(e.message));
 }
 
 $('recTab').addEventListener('click', () => start('tab'));
@@ -241,6 +253,32 @@ $('copy').addEventListener('click', async (e) => {
 });
 
 $('openLibrary').addEventListener('click', openLibrary);
+
+// Restart: for when something is stuck (say, "Saving…" that never ends). Two clicks, so a stray
+// click can't cut a working recording short. A stuck recording keeps its video.
+$('restart').addEventListener('click', async () => {
+  const btn = $('restart');
+  if (!btn.classList.contains('armed')) {
+    btn.classList.add('armed');
+    btn.dataset.tip = 'Click again to restart. A stuck recording is saved first (video only).';
+    btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); // show the new tip now
+    clearTimeout(btn.timer);
+    btn.timer = setTimeout(() => {
+      btn.classList.remove('armed');
+      btn.dataset.tip = 'Restart BugSnap (if something is stuck)';
+    }, 4000);
+    return;
+  }
+  clearTimeout(btn.timer);
+  btn.disabled = true;
+  showError('');
+  try {
+    await send({ type: 'extension:restart' });
+    closeUi();
+  } catch {
+    /* the extension is restarting: this popup closes with it */
+  }
+});
 $('openSettings').addEventListener('click', () => {
   // Every setting lives on the full settings page.
   chrome.runtime.openOptionsPage();
@@ -253,4 +291,7 @@ $('openSettings').addEventListener('click', () => {
   render();
 })();
 
-chrome.storage.onChanged.addListener(() => render());
+// Redraw only for what this popup shows (not, say, the recent list or the theme).
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.rec || changes.lastResult || changes.lastError || changes.settings) render();
+});

@@ -46,22 +46,49 @@
     }
   }
 
-  safeSend({ type: 'content:hello' }).then((reply) => {
-    if (!reply) return;
-    myTabId = reply.result?.tabId ?? null;
+  // Which tab this page is in: asked of the background only while a recording exists (asking on
+  // every page load woke it for every page). overlay.js, in this same world, shares the answer.
+  let asked = null;
+  function whoAmI() {
+    asked ||= safeSend({ type: 'content:hello' }).then((reply) => {
+      if (!reply) asked = null; // try again next time
+      else myTabId = reply.result?.tabId ?? null;
+      return myTabId;
+    });
+    return asked;
+  }
+  globalThis.__bugsnapWhoAmI = whoAmI;
+
+  (async () => {
+    let current = null;
+    try {
+      current = (await chrome.storage.session.get('rec')).rec || null;
+    } catch {
+      // Not readable here yet (the background has not started this session): ask it instead.
+      const reply = await safeSend({ type: 'content:hello' });
+      if (!reply) return;
+      myTabId = reply.result?.tabId ?? null;
+      asked = Promise.resolve(myTabId);
+      current = reply.result?.rec || null;
+    }
+    if (current && myTabId === null) await whoAmI();
     ready = true;
-    // A state change that landed while hello was in flight is newer than the reply.
-    applyState(latestWhileWaiting !== undefined ? latestWhileWaiting : reply.result?.rec || null);
+    // A state change that landed while this was in flight is newer.
+    applyState(latestWhileWaiting !== undefined ? latestWhileWaiting : current);
     const held = early;
     early = [];
     if (active) held.forEach(send);
-  });
+  })();
 
   let latestWhileWaiting;
+  let latest = null; // newest recording state seen
   const onStorage = (changes, area) => {
     if (area !== 'session' || !changes.rec) return;
-    if (!ready) latestWhileWaiting = changes.rec.newValue || null;
-    else applyState(changes.rec.newValue || null);
+    latest = changes.rec.newValue || null;
+    if (!ready) latestWhileWaiting = latest;
+    // A recording is starting and this page has not asked which tab it is yet: ask now.
+    else if (latest && myTabId === null) whoAmI().then(() => applyState(latest));
+    else applyState(latest);
   };
   chrome.storage.onChanged.addListener(onStorage);
 
@@ -153,7 +180,13 @@
   }
 
   // innerText respects CSS (hidden text is skipped); textContent is the fallback.
-  const textOf = (el) => (el ? el.innerText || el.textContent || '' : '');
+  // Big containers (a click on empty space can land on <body>) skip innerText: it lays out the
+  // whole page and returns all of its text, of which only ~60 characters are kept.
+  const textOf = (el) => {
+    if (!el) return '';
+    if (el.childElementCount > 20) return (el.textContent || '').slice(0, 300);
+    return el.innerText || el.textContent || '';
+  };
 
   function accessibleName(el) {
     const aria = el.getAttribute('aria-label');

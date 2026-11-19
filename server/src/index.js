@@ -1,11 +1,12 @@
 import express from 'express';
+import http from 'node:http';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { newId, ID_PATTERN } from './ids.js';
 import { LocalStorage, countEvents } from './storage/local.js';
-import { processVideo, makeImagePoster, trimVideo } from './media.js';
+import { processVideo, makeImagePoster, trimVideo, extractFrame } from './media.js';
 import { Drive } from './drive.js';
 import { ReportWriter, reportContext } from './ai.js';
 import { GitHub, splitReport } from './github.js';
@@ -28,12 +29,17 @@ function applySetup() {
   drive.clientId = local ? '' : setup.get('googleClientId');
   drive.clientSecret = local ? '' : setup.get('googleClientSecret');
   drive.viewerUrl = setup.get('viewerUrl').replace(/\/+$/, '');
+  // Request and response bodies in share links: on unless switched off in Settings.
+  drive.shareBodies = setup.saved.shareBodies !== false;
 }
 applySetup();
 const writer = new ReportWriter({ command: config.claudePath, model: config.aiModel, dataDir: config.dataDir, envApiKey: config.anthropicApiKey });
 await writer.load();
+// Check Claude Code now (starting it takes ~1 s), so the first report or settings page doesn't wait.
+if (writer.prefs?.provider === 'claude-code') writer.cliStatus().catch(() => {});
 const github = new GitHub({ dataDir: config.dataDir, envToken: config.githubToken });
 await github.load();
+github.warm();
 const integrations = new Integrations({ dataDir: config.dataDir });
 await integrations.load();
 const auth = new Auth({ dataDir: config.dataDir, required: config.requireLogin, legacyToken: config.uploadToken });
@@ -342,7 +348,7 @@ app.post('/api/recordings/:id/finalize-shot', requireUploadToken, express.json({
     const body = req.body || {};
     const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
     // The thumbnail is rebuilt in the background so autosaves answer quickly.
-    makeImagePoster({ ffmpegPath: config.ffmpegPath, imagePath, posterPath: storage.file(id, 'poster.jpg') }).catch(() => {});
+    schedulePoster(id, imagePath);
     const record = await storage.updateWith(id, (r) => {
       r.type = 'screenshot';
       r.status = 'ready';
@@ -505,6 +511,19 @@ function queueDriveUpload(id) {
 }
 
 // Screenshot edits save every few seconds; upload once they settle.
+// A screenshot's thumbnail: made at once the first time, then at most once per few seconds while
+// marks are being added (each one starts ffmpeg, and the editor autosaves after every change).
+const posterTimers = new Map();
+function schedulePoster(id, imagePath) {
+  const make = () => {
+    posterTimers.delete(id);
+    makeImagePoster({ ffmpegPath: config.ffmpegPath, imagePath, posterPath: storage.file(id, 'poster.jpg') }).catch(() => {});
+  };
+  clearTimeout(posterTimers.get(id));
+  if (!existsSync(storage.file(id, 'poster.jpg'))) return make();
+  posterTimers.set(id, setTimeout(make, 3000));
+}
+
 const refreshTimers = new Map();
 function scheduleDriveRefresh(id, delayMs) {
   clearTimeout(refreshTimers.get(id));
@@ -562,7 +581,7 @@ async function waitForDrive(id, ms = 20000) {
       refreshTimers.delete(id);
       queueDriveUpload(id);
     }
-    await new Promise((res) => setTimeout(res, 700));
+    await new Promise((res) => setTimeout(res, 250));
   }
 }
 
@@ -665,7 +684,46 @@ app.post('/api/setup/check-player', localOnly, async (req, res) => {
 
 app.get('/setup', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'setup.html')));
 
-app.get('/api/drive', localOnly, (req, res) => res.json(drive.status()));
+app.get('/api/drive', localOnly, (req, res) => res.json({ ...drive.status(), shareBodies: drive.shareBodies }));
+
+// Settings for share links. Changing one updates the links already shared (in the background).
+app.post('/api/drive/prefs', localOnly, express.json({ limit: '4kb' }), async (req, res, next) => {
+  try {
+    if (typeof req.body?.shareBodies === 'boolean' && req.body.shareBodies !== drive.shareBodies) {
+      await setup.update({ shareBodies: req.body.shareBodies });
+      drive.shareBodies = req.body.shareBodies;
+      if (drive.connected) {
+        for (const r of await storage.list()) if (r.drive?.status === 'done' && r.drive.manifestId) queueManifestRefresh(r.id);
+      }
+    }
+    res.json({ ...drive.status(), shareBodies: drive.shareBodies });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Stop sharing a recording (its link stops opening for everyone), or share it again (the same
+// link works again). Frames captured from a recording follow it.
+app.post('/api/recordings/:id/sharing', localOnly, express.json({ limit: '4kb' }), async (req, res, next) => {
+  try {
+    const record = await storage.get(req.params.id);
+    if (!drive.connected) return res.status(409).json({ error: 'Google Drive is not connected.' });
+    const shared = req.body?.shared !== false;
+    const family = [record];
+    for (const fid of record.frames || []) {
+      const f = await storage.get(fid).catch(() => null);
+      if (f) family.push(f);
+    }
+    const files = family.flatMap((r) => [r.drive?.manifestId, r.drive?.videoId]).filter(Boolean);
+    if (!files.length) return res.status(409).json({ error: 'This is not on Google Drive yet.' });
+    if (shared) await drive.reshare(files);
+    else await drive.unshare(files);
+    for (const r of family) if (r.drive) await patchDrive(r.id, { unshared: !shared });
+    res.json({ shared, shareUrl: shareUrlOf(await storage.get(record.id)) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.post('/api/drive/disconnect', localOnly, async (req, res, next) => {
   try {
@@ -1040,35 +1098,83 @@ async function fromRecordingOf(record) {
 
 // Start a screenshot from the current frame of a recording. The player then uploads the image
 // (PUT /image and /original) and finalizes it like any screenshot.
+/** The screenshot record for a frame at `at` seconds, listed under its recording. */
+async function createFrame(parent, at, pageUrlRaw) {
+  const pm = parent.meta || {};
+  const pageUrl = typeof pageUrlRaw === 'string' && pageUrlRaw ? pageUrlRaw.slice(0, 2000) : undefined;
+  const meta = sanitizeMeta({
+    ...pm,
+    title: `${pm.title || 'Recording'} · ${clock(at)}`,
+    startUrl: pageUrl && /^https?:\/\//.test(pageUrl) ? pageUrl : pm.startUrl,
+    description: '',
+    capturedAt: new Date((parent.startedAt || Date.parse(parent.createdAt)) + at * 1000).toISOString(),
+    fromRecording: { id: parent.id, at },
+  });
+  const id = newId();
+  await storage.create(id, meta);
+  // "Captured" is when that moment happened in the recording, not when the frame was grabbed.
+  await storage.updateWith(id, (r) => {
+    r.startedAt = Date.parse(meta.capturedAt) || r.startedAt;
+    if (parent.folderId) r.folderId = parent.folderId;
+    else delete r.folderId;
+  });
+  await storage.updateWith(parent.id, (r) => {
+    r.frames = [...(r.frames || []), id].slice(-30);
+  });
+  return id;
+}
+
+const frameParent = async (id) => {
+  const parent = await storage.get(id);
+  const ok = parent.type !== 'screenshot' && !parent.meta?.fromRecording && storage.videoPath(parent.id);
+  return ok ? parent : null;
+};
+const frameAt = (v) => Math.max(0, Math.min(Number(v) || 0, 24 * 3600));
+
 app.post('/api/recordings/:id/frames', requireUploadToken, express.json({ limit: '64kb' }), async (req, res, next) => {
   try {
-    const parent = await storage.get(req.params.id);
-    if (parent.type === 'screenshot' || parent.meta?.fromRecording || !storage.videoPath(parent.id)) return res.status(400).json({ error: 'Frames come from finished recordings' });
-    const at = Math.max(0, Math.min(Number(req.body?.at) || 0, 24 * 3600));
-    const pm = parent.meta || {};
-    const str = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : undefined);
-    const pageUrl = str(req.body?.pageUrl, 2000);
-    const meta = sanitizeMeta({
-      ...pm,
-      title: `${pm.title || 'Recording'} · ${clock(at)}`,
-      startUrl: pageUrl && /^https?:\/\//.test(pageUrl) ? pageUrl : pm.startUrl,
-      description: '',
-      capturedAt: new Date((parent.startedAt || Date.parse(parent.createdAt)) + at * 1000).toISOString(),
-      fromRecording: { id: parent.id, at },
-    });
-    const id = newId();
-    await storage.create(id, meta);
-    // "Captured" is when that moment happened in the recording, not when the frame was grabbed.
-    await storage.updateWith(id, (r) => {
-      r.startedAt = Date.parse(meta.capturedAt) || r.startedAt;
-      if (parent.folderId) r.folderId = parent.folderId;
-      else delete r.folderId;
-    });
-    await storage.updateWith(parent.id, (r) => {
-      r.frames = [...(r.frames || []), id].slice(-30);
-    });
+    const parent = await frameParent(req.params.id);
+    if (!parent) return res.status(400).json({ error: 'Frames come from finished recordings' });
+    const id = await createFrame(parent, frameAt(req.body?.at), req.body?.pageUrl);
     res.status(201).json({ id, viewerUrl: viewerUrl(id) });
     if (drive.connected) reserveDriveLink(await storage.get(id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// A frame chosen on the public share player (through the extension, so only the owner can). The
+// page can't read the Drive video's pixels, so the frame is cut from this computer's copy.
+app.post('/api/recordings/:id/frames/extract', requireUploadToken, express.json({ limit: '64kb' }), async (req, res, next) => {
+  try {
+    const parent = await frameParent(req.params.id);
+    if (!parent) return res.status(400).json({ error: 'Frames come from finished recordings' });
+    const at = frameAt(req.body?.at);
+    const tmp = storage.file(parent.id, `frame-${Date.now()}.png`);
+    let shot;
+    try {
+      shot = await extractFrame({ ffmpegPath: config.ffmpegPath, videoPath: storage.videoPath(parent.id), at, outPath: tmp });
+    } finally {
+      fsp.rm(tmp, { force: true }).catch(() => {});
+    }
+    const id = await createFrame(parent, at, req.body?.pageUrl);
+    await fsp.writeFile(storage.file(id, 'original.png'), shot.png);
+    await storage.writeImage(id, shot.png);
+    const pm = parent.meta || {};
+    await storage.updateWith(id, (r) => {
+      r.type = 'screenshot';
+      r.status = 'ready';
+      r.durationMs = null;
+      r.eventCounts = null;
+      r.image = { width: shot.width, height: shot.height };
+      r.meta = { ...r.meta, type: 'screenshot', kind: parent.report?.kind || pm.kind || 'bug' };
+    });
+    schedulePoster(id, storage.imagePath(id));
+    res.status(201).json({ id, viewerUrl: viewerUrl(id), at, width: shot.width, height: shot.height });
+    if (drive.connected) {
+      await reserveDriveLink(await storage.get(id));
+      scheduleDriveRefresh(id, 0);
+    }
   } catch (err) {
     next(err);
   }
@@ -1207,7 +1313,14 @@ app.get('/api/recordings/:id/poster', (req, res) => {
 // Viewer pages
 app.get('/r/:id', (req, res) => res.sendFile(path.join(config.publicDir, 'viewer.html')));
 app.get('/settings', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'settings.html')));
-app.use(express.static(config.publicDir, { index: 'index.html' }));
+app.use(express.static(config.publicDir, {
+  index: 'index.html',
+  // Fonts and icons never change under the same name: no need to ask again on every page.
+  // Scripts and styles are still checked each load (a quick 304), so updates show at once.
+  setHeaders: (res, file) => {
+    if (/\.(woff2|png|ico)$/i.test(file)) res.set('Cache-Control', 'public, max-age=604800');
+  },
+}));
 
 app.use((err, req, res, _next) => {
   const status = err.status || err.statusCode || 500;
@@ -1249,3 +1362,18 @@ server.on('error', (err) => {
   }
   throw err;
 });
+// Keep idle connections open a minute (Node's default is 5 s): autosaves and status checks reuse
+// them instead of connecting again.
+const keepAlive = (srv) => {
+  srv.keepAliveTimeout = 65 * 1000;
+  srv.headersTimeout = 70 * 1000;
+};
+keepAlive(server);
+// "localhost" tries IPv6 (::1) first. With only 127.0.0.1 open, every new connection waited
+// ~200-300 ms for that to fail. Listen on ::1 too (still only this computer can connect).
+if (config.host === '127.0.0.1') {
+  const v6 = http.createServer(app);
+  keepAlive(v6);
+  v6.on('error', () => {}); // no IPv6 on this computer, or ::1 taken: 127.0.0.1 still works
+  v6.listen(config.port, '::1');
+}

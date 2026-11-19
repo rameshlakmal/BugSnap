@@ -81,6 +81,19 @@ function debounce(fn, ms) {
 }
 
 $('reporterName').addEventListener('input', debounce(() => savePrefs({ reporterName: $('reporterName').value.trim() }), 600));
+$('shareBodies').addEventListener('change', async () => {
+  const box = $('shareBodies');
+  box.disabled = true;
+  try {
+    const d = await api('POST', '/api/drive/prefs', { shareBodies: box.checked });
+    box.checked = d.shareBodies !== false;
+    toast(box.checked ? 'Share links include request data' : 'Request data left out of share links. Links already shared update in a minute.');
+  } catch (err) {
+    box.checked = !box.checked;
+    toast(err.message, false);
+  }
+  box.disabled = false;
+});
 $('captureLocation').addEventListener('change', () => savePrefs({ captureLocation: $('captureLocation').checked }));
 $('uploadToken').addEventListener('input', debounce(() => savePrefs({ uploadToken: $('uploadToken').value.trim() }).then(checkServer), 700));
 $('serverUrl').addEventListener('change', async () => {
@@ -132,6 +145,8 @@ async function loadDrive() {
   try {
     const d = await api('GET', '/api/drive');
     $('driveDetails').hidden = !d.connected;
+    $('shareBodiesRow').hidden = !d.connected;
+    $('shareBodies').checked = d.shareBodies !== false;
     if (!d.configured) {
       $('driveSub').textContent = 'Not set up on the server yet.';
       setPill($('drivePill'), 'Not set up');
