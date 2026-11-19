@@ -141,6 +141,12 @@ const withTime = (url, sec) => `${url}${url.includes('?') ? '&' : '?'}t=${Math.f
 // ---------------------------------------------------------------- load
 
 /** light: status, links and details only, without the (possibly ~1 MB) logs. */
+/** Share player: the details could not be read. Is that because the link was turned off? */
+async function linkTakenBack() {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id&key=${encodeURIComponent(CONFIG.driveApiKey)}`).catch(() => null);
+  return Boolean(res && (res.status === 403 || res.status === 404));
+}
+
 async function fetchRecording({ light = false } = {}) {
   if (driveMode) {
     if (!id) return null;
@@ -150,7 +156,7 @@ async function fetchRecording({ light = false } = {}) {
     const m = early ? await early : await fetch(driveMedia(id), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (!m || !['bugsnap', 'screenrec'].includes(m.app)) return null;
     if (m.status === 'processing') return { status: 'uploading', meta: m.record?.meta || {}, createdAt: m.record?.createdAt, video: m.video, events: [] };
-    return { ...m.record, events: m.events || [], video: m.video, posterData: m.posterData, poster: m.poster, status: 'ready' };
+    return { ...m.record, events: m.events || [], video: m.video, posterData: m.posterData, poster: m.poster, bodiesHidden: Boolean(m.bodiesHidden), status: 'ready' };
   }
   const res = await fetch(`/api/recordings/${encodeURIComponent(id)}${light ? '?events=0' : ''}`, { cache: 'no-store' });
   return res.ok ? res.json() : null;
@@ -183,6 +189,9 @@ async function load() {
   paintIcons();
   if (driveMode) {
     document.querySelectorAll('[data-local-only]').forEach((el) => el.remove());
+    // Frame capture: only for the owner, when their BugSnap extension recognises this player.
+    $('frameBtn').hidden = true;
+    askForOwner();
     // The video id is in the link, so streaming starts while the logs load.
     // The built page may have started it already (setting src again would restart the download).
     if (videoParam && !video.getAttribute('src')) video.src = driveMedia(videoParam);
@@ -190,6 +199,16 @@ async function load() {
   if (embedded) document.documentElement.classList.add('embed', `embed-${embedMode}`);
   rec = await fetchRecording().catch(() => null);
   if (embedded && (driveMode || !rec)) return tellParent({ type: 'error', message: rec ? 'This needs the BugSnap server.' : 'Not found on the BugSnap server.' });
+  if (!rec && driveMode && id && (await linkTakenBack())) {
+    hideBoot();
+    document.querySelector('.topbar').hidden = true;
+    $('layout').hidden = true;
+    $('notfound').querySelector('h2').textContent = 'This recording is no longer shared';
+    $('notfound').querySelector('p').textContent = 'The person who shared it has turned the link off, or deleted the recording. Ask them for a new link.';
+    $('notfound').hidden = false;
+    document.title = 'No longer shared · BugSnap';
+    return;
+  }
   if (!rec) {
     hideBoot();
     if (driveMode && videoParam) return useDriveFallback('Recording details could not be loaded, so steps and logs are not shown. The video plays in Google Drive’s player.');
@@ -257,6 +276,8 @@ function render() {
   const stateEl = $('stageState');
   if (isShot()) setupShot();
   $('controls').hidden = rec.status !== 'ready' || fallbackActive || isShot();
+  // Share player: the camera button is only for the owner (see askForOwner).
+  if (driveMode) $('frameBtn').hidden = !ownerHere || isShot() || fallbackActive;
   if (rec.status !== 'ready') {
     // Recording, processing, or (public link) still uploading to Drive.
     stateEl.hidden = false;
@@ -600,10 +621,36 @@ function renderDetails() {
   }
   const d = rec.drive;
   if (!driveMode && d) {
-    const text = d.status === 'done' ? 'Shared on Google Drive · anyone with the link can watch' : uploading(rec) ? 'Uploading to Google Drive…' : d.status === 'error' ? 'Google Drive upload failed' : '';
-    if (text) items.push(h('div', { class: 'item' }, h('span', { class: 'avatar drive' }, icon(d.status === 'done' ? 'cloud-check' : 'cloud-arrow-up')), h('span', {}, text)));
+    const stopped = Boolean(d.unshared);
+    const text = stopped
+      ? 'Sharing stopped · the link no longer opens'
+      : d.status === 'done' ? 'Shared on Google Drive · anyone with the link can watch' : uploading(rec) ? 'Uploading to Google Drive…' : d.status === 'error' ? 'Google Drive upload failed' : '';
+    // Turn the public link off (say, it was posted somewhere it shouldn't be) or back on.
+    const toggle = d.manifestId && (stopped || d.status === 'done')
+      ? h('button', { type: 'button', class: 'link-btn', onclick: (e) => setSharing(stopped, e.currentTarget) }, stopped ? 'Share again' : 'Stop sharing')
+      : null;
+    if (text) items.push(h('div', { class: 'item' }, h('span', { class: 'avatar drive' }, icon(stopped ? 'lock-simple' : d.status === 'done' ? 'cloud-check' : 'cloud-arrow-up')), h('span', {}, text, toggle ? ' · ' : '', toggle)));
   }
   $('activity').replaceChildren(...items);
+}
+
+/** Stop sharing this recording (and frames taken from it), or share it again. */
+async function setSharing(shared, btn) {
+  btn.disabled = true;
+  btn.textContent = shared ? 'Sharing…' : 'Stopping…';
+  try {
+    const res = await fetch(`/api/recordings/${encodeURIComponent(id)}/sharing`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shared }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Server answered ${res.status}`);
+    rec.drive = { ...rec.drive, unshared: !shared };
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = shared ? 'Share again' : 'Stop sharing';
+    btn.dataset.tip = err.message;
+    return;
+  }
+  renderDetails();
+  renderBanner();
 }
 
 /** Status line under the top bar: Drive upload problems, or how to share. */
@@ -956,6 +1003,9 @@ function prettyBody(text, contentType = '') {
   return t;
 }
 
+/** Share player, when the owner keeps bodies out of share links. */
+const hiddenBody = () => h('p', { class: 'nd-empty' }, 'Not included in share links');
+
 function bodyBlock(text, contentType, emptyText) {
   const pretty = prettyBody(text, contentType);
   if (!pretty) return h('p', { class: 'nd-empty' }, emptyText);
@@ -1035,13 +1085,13 @@ function renderNetDetail() {
     const q = queryRows(ev.url);
     body = [
       q.length ? ndSection(`Query string (${q.length})`, kvTable(q)) : null,
-      ndSection('Request body', bodyBlock(ev.requestBody, ev.requestHeaders?.find(([k]) => /^content-type$/i.test(k))?.[1], ['GET', 'HEAD'].includes(String(ev.method || 'GET').toUpperCase()) ? 'No body (GET request)' : 'No body recorded')),
+      ndSection('Request body', rec.bodiesHidden ? hiddenBody() : bodyBlock(ev.requestBody, ev.requestHeaders?.find(([k]) => /^content-type$/i.test(k))?.[1], ['GET', 'HEAD'].includes(String(ev.method || 'GET').toUpperCase()) ? 'No body (GET request)' : 'No body recorded')),
     ];
   } else if (netTab === 'response') {
     body = [
       ndSection(
         `Response${ev.bodySize ? ` · ${kb(ev.bodySize)}` : ''}`,
-        bodyBlock(ev.responseBody, ev.contentType, ev.netType === 'fetch' || ev.netType === 'xhr' ? 'No response body recorded (binary, streamed or empty)' : 'Bodies are recorded for fetch and XHR calls only'),
+        rec.bodiesHidden ? hiddenBody() : bodyBlock(ev.responseBody, ev.contentType, ev.netType === 'fetch' || ev.netType === 'xhr' ? 'No response body recorded (binary, streamed or empty)' : 'Bodies are recorded for fetch and XHR calls only'),
       ),
     ];
   } else if (netTab === 'messages') {
@@ -2599,9 +2649,69 @@ function frameToast(state, text, actions = []) {
   }
 }
 
-async function captureFrame() {
+/**
+ * On the public share player: the BugSnap extension answers only on its owner's own player (the
+ * address their server knows). Then the camera button shows, and frames are cut by their server.
+ */
+let ownerHere = false;
+function askForOwner() {
+  const onPong = (e) => {
+    if (e.source !== window || e.data?.source !== 'bugsnap-ext' || e.data.type !== 'pong' || !e.data.owner) return;
+    window.removeEventListener('message', onPong);
+    ownerHere = true;
+    if (rec && !isShot() && !fallbackActive) $('frameBtn').hidden = false;
+  };
+  window.addEventListener('message', onPong);
+  window.postMessage({ source: 'bugsnap-page', type: 'ping' }, location.origin);
+  setTimeout(() => window.removeEventListener('message', onPong), 5000);
+}
+
+/** Ask the extension to save the frame at `at` seconds (its server cuts it from the video). */
+function frameViaExtension(at, pageUrl) {
+  return new Promise((resolve, reject) => {
+    const req = Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => done(null, new Error('The BugSnap extension did not answer. Is the server running?')), 30000);
+    const onMsg = (e) => {
+      if (e.source !== window || e.data?.source !== 'bugsnap-ext' || e.data.type !== 'frame-done' || e.data.req !== req) return;
+      done(e.data.result, e.data.error ? new Error(e.data.error) : null);
+    };
+    const done = (result, err) => {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMsg);
+      err ? reject(err) : resolve(result);
+    };
+    window.addEventListener('message', onMsg);
+    window.postMessage({ source: 'bugsnap-page', type: 'frame', req, id: rec.id, at, pageUrl }, location.origin);
+  });
+}
+
+async function captureFrameOnSharePlayer() {
   const btn = $('frameBtn');
-  if (driveMode || isShot() || fallbackActive || !btn || btn.disabled) return;
+  if (!ownerHere || !rec?.id || isShot() || fallbackActive || btn.disabled) return;
+  video.pause();
+  const at = video.currentTime;
+  btn.disabled = true;
+  frameToast('busy', `Saving frame at ${fmt(at)}…`);
+  try {
+    const nav = lists.steps.filter((e) => e.type === 'navigation' && e.url && offsetOf(e) <= at + 0.05).at(-1);
+    const created = await frameViaExtension(at, nav?.url || rec.meta?.startUrl);
+    const annotate = h('button', { type: 'button', class: 'ft-btn' }, 'Annotate');
+    annotate.addEventListener('click', async () => {
+      if (!(await openInEditor(created.id))) window.open(created.viewerUrl, '_blank', 'noopener');
+    });
+    const view = h('a', { class: 'ft-btn', href: created.viewerUrl, target: '_blank', rel: 'noopener' }, 'Open');
+    frameToast('done', `Frame at ${fmt(at)} saved to your Recordings`, [annotate, view]);
+  } catch (err) {
+    frameToast('error', err.message || "Couldn't save the frame.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function captureFrame() {
+  if (driveMode) return captureFrameOnSharePlayer();
+  const btn = $('frameBtn');
+  if (isShot() || fallbackActive || !btn || btn.disabled) return;
   if (!video.videoWidth) return frameToast('error', 'The video is not ready yet.');
   video.pause();
   const at = video.currentTime;
@@ -2655,7 +2765,7 @@ async function captureFrame() {
   }
 }
 
-if (!driveMode) $('frameBtn').addEventListener('click', captureFrame);
+$('frameBtn').addEventListener('click', captureFrame);
 
 // ---------------------------------------------------------------- create dialog (local server)
 // Right after a capture: the video (with a trim bar) or screenshot on the left, and on the right
@@ -3352,7 +3462,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight' || e.key === 'l') seek(video.currentTime + 5);
   else if (e.key === 'f') toggleFull();
   else if (e.key === 'm') video.muted = !video.muted;
-  else if (e.key === 's' && !driveMode) captureFrame();
+  else if (e.key === 's' && (!driveMode || ownerHere)) captureFrame();
 });
 
 load();

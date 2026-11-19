@@ -133,6 +133,9 @@ function describeBrowser(brands) {
 function getLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve({ error: 'unavailable' });
+    // The browser's own timeout doesn't count time spent on a permission prompt, which can wait
+    // forever when nobody sees it (a minimised window): always give up after 8 seconds.
+    setTimeout(() => resolve({ error: 'timed out' }), 8000);
     navigator.geolocation.getCurrentPosition(
       (p) =>
         resolve({
@@ -339,8 +342,9 @@ export class Recorder {
       if (this.uploadError) throw this.uploadError;
       await grace;
       if (this.locationAsked) {
-        const location = await this.locationAsked;
-        if (location) this.env = { ...this.env, location };
+        // Never hold up the save for it: a moment at most, then save without the location.
+        const location = await Promise.race([this.locationAsked, new Promise((r) => setTimeout(r, 1500))]);
+        if (location && !location.error) this.env = { ...this.env, location };
       }
       const result = await this.withRetry(() => this.api(
         'POST',

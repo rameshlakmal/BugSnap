@@ -536,13 +536,28 @@
   chrome.storage.onChanged.addListener(onStorage);
 
   // The BugSnap player and Recordings page (on the configured server only) can ask the
-  // extension to open a screenshot in the editor. Anything else posting this is ignored.
+  // extension to open a screenshot in the editor. Your own public share player (its address comes
+  // from your server) can also capture frames. Anything else posting this is ignored.
   window.addEventListener('message', async (e) => {
     if (retired || e.source !== window || e.data?.source !== 'bugsnap-page') return;
     try {
       const { settings } = await chrome.storage.local.get('settings');
       const serverOrigin = new URL(settings?.serverUrl || 'http://localhost:4800').origin;
-      if (location.origin !== serverOrigin) return;
+      if (location.origin !== serverOrigin) {
+        const reply = await chrome.runtime.sendMessage({ type: 'player:origin' });
+        if (!reply?.result || location.origin !== reply.result) return;
+        // Your share player: it may find out the extension is here, capture frames and open the editor.
+        if (e.data.type === 'ping') return window.postMessage({ source: 'bugsnap-ext', type: 'pong', owner: true }, location.origin);
+        if (e.data.type === 'frame') {
+          const r = await chrome.runtime.sendMessage({ type: 'frame:capture', id: e.data.id, at: e.data.at, pageUrl: e.data.pageUrl });
+          return window.postMessage({ source: 'bugsnap-ext', type: 'frame-done', req: e.data.req, ...(r?.ok ? { result: r.result } : { error: r?.error || 'The extension did not answer.' }) }, location.origin);
+        }
+        if (e.data.type === 'annotate') {
+          await chrome.runtime.sendMessage({ type: 'snap:edit', id: String(e.data.id || '') });
+          window.postMessage({ source: 'bugsnap-ext', type: 'annotate-ack', id: e.data.id }, location.origin);
+        }
+        return;
+      }
       if (e.data.type === 'ping') return window.postMessage({ source: 'bugsnap-ext', type: 'pong' }, location.origin);
       if (e.data.type === 'theme' && ['light', 'dark', 'system'].includes(e.data.theme)) return chrome.storage.local.set({ theme: e.data.theme });
       if (e.data.type === 'annotate') {

@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import { config } from './config.js';
 import { newId, ID_PATTERN } from './ids.js';
 import { LocalStorage, countEvents } from './storage/local.js';
-import { processVideo, makeImagePoster, trimVideo } from './media.js';
+import { processVideo, makeImagePoster, trimVideo, extractFrame } from './media.js';
 import { Drive } from './drive.js';
 import { ReportWriter, reportContext } from './ai.js';
 import { GitHub, splitReport } from './github.js';
@@ -29,6 +29,8 @@ function applySetup() {
   drive.clientId = local ? '' : setup.get('googleClientId');
   drive.clientSecret = local ? '' : setup.get('googleClientSecret');
   drive.viewerUrl = setup.get('viewerUrl').replace(/\/+$/, '');
+  // Request and response bodies in share links: on unless switched off in Settings.
+  drive.shareBodies = setup.saved.shareBodies !== false;
 }
 applySetup();
 const writer = new ReportWriter({ command: config.claudePath, model: config.aiModel, dataDir: config.dataDir, envApiKey: config.anthropicApiKey });
@@ -682,7 +684,46 @@ app.post('/api/setup/check-player', localOnly, async (req, res) => {
 
 app.get('/setup', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'setup.html')));
 
-app.get('/api/drive', localOnly, (req, res) => res.json(drive.status()));
+app.get('/api/drive', localOnly, (req, res) => res.json({ ...drive.status(), shareBodies: drive.shareBodies }));
+
+// Settings for share links. Changing one updates the links already shared (in the background).
+app.post('/api/drive/prefs', localOnly, express.json({ limit: '4kb' }), async (req, res, next) => {
+  try {
+    if (typeof req.body?.shareBodies === 'boolean' && req.body.shareBodies !== drive.shareBodies) {
+      await setup.update({ shareBodies: req.body.shareBodies });
+      drive.shareBodies = req.body.shareBodies;
+      if (drive.connected) {
+        for (const r of await storage.list()) if (r.drive?.status === 'done' && r.drive.manifestId) queueManifestRefresh(r.id);
+      }
+    }
+    res.json({ ...drive.status(), shareBodies: drive.shareBodies });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Stop sharing a recording (its link stops opening for everyone), or share it again (the same
+// link works again). Frames captured from a recording follow it.
+app.post('/api/recordings/:id/sharing', localOnly, express.json({ limit: '4kb' }), async (req, res, next) => {
+  try {
+    const record = await storage.get(req.params.id);
+    if (!drive.connected) return res.status(409).json({ error: 'Google Drive is not connected.' });
+    const shared = req.body?.shared !== false;
+    const family = [record];
+    for (const fid of record.frames || []) {
+      const f = await storage.get(fid).catch(() => null);
+      if (f) family.push(f);
+    }
+    const files = family.flatMap((r) => [r.drive?.manifestId, r.drive?.videoId]).filter(Boolean);
+    if (!files.length) return res.status(409).json({ error: 'This is not on Google Drive yet.' });
+    if (shared) await drive.reshare(files);
+    else await drive.unshare(files);
+    for (const r of family) if (r.drive) await patchDrive(r.id, { unshared: !shared });
+    res.json({ shared, shareUrl: shareUrlOf(await storage.get(record.id)) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.post('/api/drive/disconnect', localOnly, async (req, res, next) => {
   try {
@@ -1057,35 +1098,83 @@ async function fromRecordingOf(record) {
 
 // Start a screenshot from the current frame of a recording. The player then uploads the image
 // (PUT /image and /original) and finalizes it like any screenshot.
+/** The screenshot record for a frame at `at` seconds, listed under its recording. */
+async function createFrame(parent, at, pageUrlRaw) {
+  const pm = parent.meta || {};
+  const pageUrl = typeof pageUrlRaw === 'string' && pageUrlRaw ? pageUrlRaw.slice(0, 2000) : undefined;
+  const meta = sanitizeMeta({
+    ...pm,
+    title: `${pm.title || 'Recording'} · ${clock(at)}`,
+    startUrl: pageUrl && /^https?:\/\//.test(pageUrl) ? pageUrl : pm.startUrl,
+    description: '',
+    capturedAt: new Date((parent.startedAt || Date.parse(parent.createdAt)) + at * 1000).toISOString(),
+    fromRecording: { id: parent.id, at },
+  });
+  const id = newId();
+  await storage.create(id, meta);
+  // "Captured" is when that moment happened in the recording, not when the frame was grabbed.
+  await storage.updateWith(id, (r) => {
+    r.startedAt = Date.parse(meta.capturedAt) || r.startedAt;
+    if (parent.folderId) r.folderId = parent.folderId;
+    else delete r.folderId;
+  });
+  await storage.updateWith(parent.id, (r) => {
+    r.frames = [...(r.frames || []), id].slice(-30);
+  });
+  return id;
+}
+
+const frameParent = async (id) => {
+  const parent = await storage.get(id);
+  const ok = parent.type !== 'screenshot' && !parent.meta?.fromRecording && storage.videoPath(parent.id);
+  return ok ? parent : null;
+};
+const frameAt = (v) => Math.max(0, Math.min(Number(v) || 0, 24 * 3600));
+
 app.post('/api/recordings/:id/frames', requireUploadToken, express.json({ limit: '64kb' }), async (req, res, next) => {
   try {
-    const parent = await storage.get(req.params.id);
-    if (parent.type === 'screenshot' || parent.meta?.fromRecording || !storage.videoPath(parent.id)) return res.status(400).json({ error: 'Frames come from finished recordings' });
-    const at = Math.max(0, Math.min(Number(req.body?.at) || 0, 24 * 3600));
-    const pm = parent.meta || {};
-    const str = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : undefined);
-    const pageUrl = str(req.body?.pageUrl, 2000);
-    const meta = sanitizeMeta({
-      ...pm,
-      title: `${pm.title || 'Recording'} · ${clock(at)}`,
-      startUrl: pageUrl && /^https?:\/\//.test(pageUrl) ? pageUrl : pm.startUrl,
-      description: '',
-      capturedAt: new Date((parent.startedAt || Date.parse(parent.createdAt)) + at * 1000).toISOString(),
-      fromRecording: { id: parent.id, at },
-    });
-    const id = newId();
-    await storage.create(id, meta);
-    // "Captured" is when that moment happened in the recording, not when the frame was grabbed.
-    await storage.updateWith(id, (r) => {
-      r.startedAt = Date.parse(meta.capturedAt) || r.startedAt;
-      if (parent.folderId) r.folderId = parent.folderId;
-      else delete r.folderId;
-    });
-    await storage.updateWith(parent.id, (r) => {
-      r.frames = [...(r.frames || []), id].slice(-30);
-    });
+    const parent = await frameParent(req.params.id);
+    if (!parent) return res.status(400).json({ error: 'Frames come from finished recordings' });
+    const id = await createFrame(parent, frameAt(req.body?.at), req.body?.pageUrl);
     res.status(201).json({ id, viewerUrl: viewerUrl(id) });
     if (drive.connected) reserveDriveLink(await storage.get(id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// A frame chosen on the public share player (through the extension, so only the owner can). The
+// page can't read the Drive video's pixels, so the frame is cut from this computer's copy.
+app.post('/api/recordings/:id/frames/extract', requireUploadToken, express.json({ limit: '64kb' }), async (req, res, next) => {
+  try {
+    const parent = await frameParent(req.params.id);
+    if (!parent) return res.status(400).json({ error: 'Frames come from finished recordings' });
+    const at = frameAt(req.body?.at);
+    const tmp = storage.file(parent.id, `frame-${Date.now()}.png`);
+    let shot;
+    try {
+      shot = await extractFrame({ ffmpegPath: config.ffmpegPath, videoPath: storage.videoPath(parent.id), at, outPath: tmp });
+    } finally {
+      fsp.rm(tmp, { force: true }).catch(() => {});
+    }
+    const id = await createFrame(parent, at, req.body?.pageUrl);
+    await fsp.writeFile(storage.file(id, 'original.png'), shot.png);
+    await storage.writeImage(id, shot.png);
+    const pm = parent.meta || {};
+    await storage.updateWith(id, (r) => {
+      r.type = 'screenshot';
+      r.status = 'ready';
+      r.durationMs = null;
+      r.eventCounts = null;
+      r.image = { width: shot.width, height: shot.height };
+      r.meta = { ...r.meta, type: 'screenshot', kind: parent.report?.kind || pm.kind || 'bug' };
+    });
+    schedulePoster(id, storage.imagePath(id));
+    res.status(201).json({ id, viewerUrl: viewerUrl(id), at, width: shot.width, height: shot.height });
+    if (drive.connected) {
+      await reserveDriveLink(await storage.get(id));
+      scheduleDriveRefresh(id, 0);
+    }
   } catch (err) {
     next(err);
   }

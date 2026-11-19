@@ -253,6 +253,32 @@ $('copy').addEventListener('click', async (e) => {
 });
 
 $('openLibrary').addEventListener('click', openLibrary);
+
+// Restart: for when something is stuck (say, "Saving…" that never ends). Two clicks, so a stray
+// click can't cut a working recording short. A stuck recording keeps its video.
+$('restart').addEventListener('click', async () => {
+  const btn = $('restart');
+  if (!btn.classList.contains('armed')) {
+    btn.classList.add('armed');
+    btn.dataset.tip = 'Click again to restart. A stuck recording is saved first (video only).';
+    btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); // show the new tip now
+    clearTimeout(btn.timer);
+    btn.timer = setTimeout(() => {
+      btn.classList.remove('armed');
+      btn.dataset.tip = 'Restart BugSnap (if something is stuck)';
+    }, 4000);
+    return;
+  }
+  clearTimeout(btn.timer);
+  btn.disabled = true;
+  showError('');
+  try {
+    await send({ type: 'extension:restart' });
+    closeUi();
+  } catch {
+    /* the extension is restarting: this popup closes with it */
+  }
+});
 $('openSettings').addEventListener('click', () => {
   // Every setting lives on the full settings page.
   chrome.runtime.openOptionsPage();

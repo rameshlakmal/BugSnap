@@ -106,6 +106,30 @@ async function toRecorder(msg) {
   }
 }
 
+/**
+ * Finish a recording whose recorder got stuck: tell the server it ended, with the video it
+ * already has (no logs). Listed in Recordings like any other. Returns the entry, or null.
+ */
+async function salvageRecording(rec) {
+  const s = await getSettings();
+  const headers = { 'Content-Type': 'application/json', ...(s.uploadToken ? { 'X-Upload-Token': s.uploadToken } : {}) };
+  const server = await fetch(`${s.serverUrl}/api/recordings/${encodeURIComponent(rec.id)}?events=0`, { headers }).then((r) => (r.ok ? r.json() : null));
+  // Already saved, or nothing of the video arrived: nothing to rescue.
+  if (!server || server.status !== 'recording' || !server.chunks) return null;
+  const endedAt = rec.pausedAt || rec.stoppedAt || Date.now();
+  const startedAt = rec.startedAt || Date.parse(server.createdAt);
+  const res = await fetch(`${s.serverUrl}/api/recordings/${encodeURIComponent(rec.id)}/finalize`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ events: [], pauses: [], startedAt, endedAt, durationMs: Math.max(0, endedAt - startedAt - (rec.pausedMs || 0)), mimeType: 'video/webm' }),
+  });
+  if (!res.ok) return null;
+  const { recent = [] } = await chrome.storage.local.get('recent');
+  const entry = { id: rec.id, viewerUrl: `${s.serverUrl}/r/${rec.id}`, shareUrl: null, title: rec.pending?.meta?.title || 'Recording', mode: rec.mode, createdAt: new Date().toISOString() };
+  await chrome.storage.local.set({ recent: [entry, ...recent.filter((r) => r.id !== rec.id)].slice(0, 50), lastResult: entry });
+  return entry;
+}
+
 /** Removes a half-made recording from the server (best effort). */
 async function discardRemote(rec) {
   if (!rec?.id) return;
@@ -739,7 +763,7 @@ const handlers = {
   },
 
   'recorder:stopping': async () => {
-    await patchRec({ status: 'stopping' });
+    await patchRec({ status: 'stopping', stoppedAt: Date.now() });
     badge('...', '#5b616e');
   },
 
@@ -773,6 +797,58 @@ const handlers = {
 
   'recorder:discarded': async () => {
     await cleanup(await getRec());
+  },
+
+  // The address of this user's public share player (asked by the page bridge in overlay.js, so
+  // the owner's own player can capture frames). Remembered; asked of the server again hourly.
+  'player:origin': async () => {
+    const { playerOrigin } = await chrome.storage.local.get('playerOrigin');
+    if (playerOrigin && Date.now() - playerOrigin.at < 60 * 60 * 1000) return playerOrigin.origin;
+    const { serverUrl, uploadToken } = await getSettings();
+    try {
+      const d = await fetch(`${serverUrl}/api/drive`, { headers: uploadToken ? { 'X-Upload-Token': uploadToken } : {} }).then((r) => (r.ok ? r.json() : null));
+      const origin = d?.viewerUrl ? new URL(d.viewerUrl).origin : null;
+      await chrome.storage.local.set({ playerOrigin: { origin, at: Date.now() } });
+      return origin;
+    } catch {
+      return playerOrigin?.origin || null;
+    }
+  },
+  // A frame chosen on the share player: the server cuts it from its own copy of the video.
+  'frame:capture': async (msg) => {
+    const rid = String(msg.id || '');
+    if (!/^[A-Za-z0-9]{6,20}$/.test(rid)) throw new Error('Unknown recording');
+    const { serverUrl, uploadToken } = await getSettings();
+    let res;
+    try {
+      res = await fetch(`${serverUrl}/api/recordings/${rid}/frames/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(uploadToken ? { 'X-Upload-Token': uploadToken } : {}) },
+        body: JSON.stringify({ at: Number(msg.at) || 0, pageUrl: typeof msg.pageUrl === 'string' ? msg.pageUrl : undefined }),
+      });
+    } catch {
+      throw new Error(`Can't reach the BugSnap server (${serverUrl}). Is it running?`);
+    }
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 404) throw new Error('This recording is not on this computer’s BugSnap server.');
+    if (!res.ok) throw new Error(body.error || `Server answered ${res.status}`);
+    return { id: body.id, viewerUrl: body.viewerUrl };
+  },
+
+  // The popup's restart button: get out of any stuck state. A recording that never finished
+  // saving keeps the video that already reached the server (its logs live in the recorder page
+  // and can't be recovered). Then everything is reset and the extension starts fresh.
+  'extension:restart': async () => {
+    const rec = await getRec();
+    let saved = null;
+    if (rec?.id && ['recording', 'paused', 'stopping'].includes(rec.status)) saved = await salvageRecording(rec).catch(() => null);
+    await cleanup(rec).catch(() => {});
+    await chrome.storage.session.clear().catch(() => {});
+    await caches.delete(SNAP_CACHE).catch(() => {});
+    badge('');
+    // Reply first; the reload closes this popup, the recorder window and the offscreen page.
+    setTimeout(() => chrome.runtime.reload(), 300);
+    return { saved };
   },
 
   // Sent every 20 s while recording: receiving it is all it takes to keep this worker awake.

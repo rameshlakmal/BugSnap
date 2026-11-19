@@ -57,6 +57,7 @@
       .saved { font-size: 13px; color: var(--ok); display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
       .actions { display: flex; gap: 10px; align-items: center; }
       .sp { margin-top: 4px; }
+      #restart.armed { color: var(--live); background: color-mix(in srgb, var(--live) 12%, transparent); }
     </style>
   </head>
   <body>
@@ -64,6 +65,7 @@
       <div class="brand"><img class="mark" src="icons/logo-small.svg" alt="" />BugSnap</div>
       <div class="tools">
         <button class="btn ghost icon-only sm" id="openLibrary" data-tip="All recordings" data-icon="house"></button>
+        <button class="btn ghost icon-only sm" id="restart" data-tip="Restart BugSnap (if something is stuck)" data-icon="arrow-clockwise"></button>
         <button class="btn ghost icon-only sm" id="openSettings" data-tip="Settings" data-icon="gear-six"></button>
       </div>
     </header>

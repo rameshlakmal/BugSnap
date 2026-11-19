@@ -93,7 +93,15 @@ globalThis.fetch = async (url, opts = {}) => {
     files.set(id, { meta: s.meta, data: Buffer.concat(s.parts) });
     return json(200, { id });
   }
-  const perm = /\/files\/([\w-]+)\/permissions/.exec(url);
+  const perm = /\/files\/([\w-]+)\/permissions(?:\/([\w-]+))?/.exec(url);
+  if (perm && method === 'GET') {
+    return json(200, { permissions: permissions.filter((p) => p.id === perm[1]).map((p, i) => ({ id: `${p.id}-perm${i}`, type: p.type })) });
+  }
+  if (perm && method === 'DELETE') {
+    const at = permissions.findIndex((p, i) => p.id === perm[1] && perm[2] === `${p.id}-perm${permissions.filter((q, j) => q.id === p.id && j < i).length}`);
+    if (at >= 0) permissions.splice(at, 1);
+    return new Response(null, { status: 204 });
+  }
   if (perm) {
     permissions.push({ id: perm[1], ...JSON.parse(opts.body) });
     return json(200, { id: 'p' });
@@ -176,7 +184,34 @@ files.delete(shotIds.videoId);
 await drive.publish({ record: shot, events: [], videoPath: shotPng, posterPath: null, reserved: shotIds });
 assert.equal(String(files.get(shotIds.videoId).data), 'png-v2', 'missing screenshot uploaded again');
 
-// 7. Delete removes the files.
+// 7. Share links leave out private details; bodies only when the setting allows.
+const withPrivate = { ...record, id: 'Priv123456', github: [{ number: 9, repo: 'me/secret-repo' }], folderId: 'fold1' };
+const netEvents = [{ type: 'network', ts: 3, url: 'https://api.example/users', requestBody: '{"q":1}', responseBody: '[{"email":"a@b.c"}]' }];
+let m = await drive.buildManifest({ record: withPrivate, events: netEvents, videoId: 'v1', posterPath: null });
+assert.equal(m.record.github, undefined, 'GitHub issues not in share links');
+assert.equal(m.record.folderId, undefined, 'folder not in share links');
+assert.equal(m.events[0].responseBody, '[{"email":"a@b.c"}]', 'bodies kept by default');
+assert.equal(m.bodiesHidden, undefined);
+drive.shareBodies = false;
+m = await drive.buildManifest({ record: withPrivate, events: netEvents, videoId: 'v1', posterPath: null });
+assert.equal(m.events[0].responseBody, undefined, 'response body left out when switched off');
+assert.equal(m.events[0].requestBody, undefined, 'request body left out when switched off');
+assert.equal(m.events[0].url, 'https://api.example/users', 'the request itself is still listed');
+assert.equal(m.bodiesHidden, true);
+assert.equal(netEvents[0].responseBody, '[{"email":"a@b.c"}]', 'the local copy is untouched');
+drive.shareBodies = true;
+
+// 8. Stop sharing removes "anyone with the link"; republishing keeps it private; share again restores it.
+const anyone = (fid) => permissions.some((p) => p.id === fid && p.type === 'anyone');
+assert.ok(anyone(shotIds.videoId) && anyone(shotIds.manifestId), 'shared to begin with');
+await drive.unshare([shotIds.videoId, shotIds.manifestId]);
+assert.ok(!anyone(shotIds.videoId) && !anyone(shotIds.manifestId), 'no longer shared');
+await drive.publish({ record: { ...shot, drive: { unshared: true } }, events: [], videoPath: shotPng, posterPath: null, reserved: shotIds });
+assert.ok(!anyone(shotIds.videoId) && !anyone(shotIds.manifestId), 'an edit does not share it again');
+await drive.reshare([shotIds.videoId, shotIds.manifestId]);
+assert.ok(anyone(shotIds.videoId) && anyone(shotIds.manifestId), 'shared again');
+
+// 9. Delete removes the files.
 await drive.deleteFiles([reserved.manifestId, reserved.videoId]);
 assert.ok(!files.has(reserved.manifestId) && !files.has(reserved.videoId), 'files deleted');
 

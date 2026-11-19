@@ -41,6 +41,20 @@ export async function makeImagePoster({ ffmpegPath, imagePath, posterPath }) {
 }
 
 /**
+ * One frame of a recording as a PNG, at full size. Used when the frame is chosen on the public
+ * player, whose video (from Google Drive) the page itself is not allowed to read.
+ */
+export async function extractFrame({ ffmpegPath, videoPath, at, outPath }) {
+  if (!(await hasFfmpeg(ffmpegPath))) throw Object.assign(new Error('Capturing frames from a share link needs ffmpeg on the server.'), { status: 501 });
+  // -ss before -i seeks fast and, since frames are decoded, still lands on the exact moment.
+  await run(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', Math.max(0, at).toFixed(3), '-i', videoPath, '-frames:v', '1', '-update', '1', outPath]);
+  const png = await fs.readFile(outPath);
+  if (png.length < 24 || png[0] !== 0x89 || png[1] !== 0x50) throw new Error('ffmpeg did not produce an image at that moment.');
+  // Width and height sit in the PNG's first chunk (IHDR).
+  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20), png };
+}
+
+/**
  * Cut [start, end] seconds out of a recording. Browser recordings have very few keyframes, so a
  * stream copy would start at the wrong moment: re-encode (fast VP9 settings) for an exact cut.
  */
