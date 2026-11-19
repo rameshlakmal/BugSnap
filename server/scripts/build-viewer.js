@@ -39,9 +39,11 @@ for (const f of await fs.readdir(path.join(pub, 'fonts'))) {
 
 // Speed: connect to Google while the page loads, and fetch the recording's details from Drive
 // straight from the <head> instead of after every script has downloaded.
+// The key is written into the page itself, so nothing waits for a separate config.js request.
+const inlineConfig = JSON.stringify({ driveApiKey: apiKey }).replace(/</g, '\\u003c');
 const EARLY = `<link rel="preconnect" href="https://www.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://www.googleapis.com" />
-    <script src="config.js"></script>
+    <script>window.SCREENREC_CONFIG = ${inlineConfig};</script>
     <script>
       (function () {
         var c = window.SCREENREC_CONFIG || {}, id = new URLSearchParams(location.search).get('id');
@@ -58,6 +60,13 @@ html = html.replace(/(href|src)="\/(?!\/)/g, '$1="');
 const anchor = '<link rel="stylesheet" href="tokens.css" />';
 if (!html.includes(anchor)) throw new Error('viewer.html changed: could not insert config.js');
 html = html.replace(anchor, `${EARLY}\n    ${anchor}`);
+// Start loading the video as soon as its element exists, not after every script has run.
+const videoTag = '<video id="video" playsinline preload="metadata"></video>';
+if (!html.includes(videoTag)) throw new Error('viewer.html changed: could not find the video element');
+html = html.replace(
+  videoTag,
+  `${videoTag}<script>(function () { var c = window.SCREENREC_CONFIG || {}, v = new URLSearchParams(location.search).get('v'); if (c.driveApiKey && v) document.getElementById('video').src = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(v) + '?alt=media&key=' + encodeURIComponent(c.driveApiKey); })();</script>`,
+);
 await fs.writeFile(path.join(out, 'index.html'), html);
 
 // The key is public by design (it ships to every viewer). Restrict it in Google Cloud to the

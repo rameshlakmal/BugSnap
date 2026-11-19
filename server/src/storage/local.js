@@ -77,9 +77,17 @@ export class LocalStorage {
   }
 
   async get(id) {
+    // Each record's JSON text is kept in memory after the first read (all of them together are a
+    // few hundred KB), so lists and status checks skip the disk. Every write goes through
+    // writeRecord, which refreshes it. A fresh object is parsed each time: callers may change it.
+    this.texts ||= new Map();
+    const known = this.texts.get(id);
+    if (known) return JSON.parse(known);
     try {
       const raw = await fs.readFile(this.file(id, 'record.json'), 'utf8');
-      return JSON.parse(raw);
+      const record = JSON.parse(raw);
+      this.texts.set(id, raw);
+      return record;
     } catch (err) {
       if (err.code === 'ENOENT') throw new NotFoundError();
       throw err;
@@ -89,11 +97,15 @@ export class LocalStorage {
   async writeRecord(record) {
     record.updatedAt = new Date().toISOString();
     const tmp = this.file(record.id, 'record.json.tmp');
-    await fs.writeFile(tmp, JSON.stringify(record, null, 2));
+    const text = JSON.stringify(record, null, 2);
+    this.texts ||= new Map();
+    this.texts.delete(record.id); // a failed write must not leave a copy the disk does not have
+    await fs.writeFile(tmp, text);
     // Windows refuses to replace a file another request is reading at that instant: retry briefly.
     for (let attempt = 0; ; attempt++) {
       try {
         await fs.rename(tmp, this.file(record.id, 'record.json'));
+        this.texts.set(record.id, text);
         return;
       } catch (err) {
         if (attempt >= 8 || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) throw err;
@@ -148,6 +160,7 @@ export class LocalStorage {
   async remove(id) {
     return this.withLock(id, async () => {
       await this.get(id); // 404 if unknown
+      this.texts?.delete(id);
       await fs.rm(this.dir(id), { recursive: true, force: true });
     });
   }
@@ -220,15 +233,9 @@ export class LocalStorage {
 
   async list() {
     const entries = await fs.readdir(this.dataDir, { withFileTypes: true });
-    const records = [];
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      try {
-        records.push(await this.get(e.name));
-      } catch {
-        /* skip half-written folders */
-      }
-    }
+    // Read together rather than one after another (only the first list touches the disk).
+    const found = await Promise.all(entries.filter((e) => e.isDirectory()).map((e) => this.get(e.name).catch(() => null)));
+    const records = found.filter(Boolean); // half-written folders are skipped
     return records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   }
 }

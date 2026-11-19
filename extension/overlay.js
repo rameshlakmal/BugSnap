@@ -466,7 +466,9 @@
       }, 100);
     } else if (rec?.status === 'recording') {
       tick = setInterval(() => {
-        if (els?.clock) els.clock.textContent = fmt(elapsedMs(rec));
+        // Written only when the shown second changes (the page's own observers see every write).
+        const text = fmt(elapsedMs(rec));
+        if (els?.clock && els.clock.textContent !== text) els.clock.textContent = text;
       }, 250);
     } else if (toast || saved) {
       tick = setInterval(() => {
@@ -481,14 +483,26 @@
     }
   }
 
+  /** Which tab this is: content.js asks the background once, and only while a recording exists. */
+  async function learnTab() {
+    if (myTabId === null && globalThis.__bugsnapWhoAmI) myTabId = await globalThis.__bugsnapWhoAmI();
+  }
+
   async function init() {
     try {
-      const [hello, stored] = await Promise.all([
-        chrome.runtime.sendMessage({ type: 'content:hello' }),
+      const [session, stored] = await Promise.all([
+        chrome.storage.session.get('rec').catch(() => null),
         chrome.storage.local.get('overlayOffset'),
       ]);
-      myTabId = hello?.result?.tabId ?? null;
-      rec = hello?.result?.rec || null;
+      if (session) {
+        rec = session.rec || null;
+        if (rec) await learnTab();
+      } else {
+        // Session state not readable here yet: ask the background.
+        const hello = await chrome.runtime.sendMessage({ type: 'content:hello' });
+        myTabId = hello?.result?.tabId ?? null;
+        rec = hello?.result?.rec || null;
+      }
       if (stored.overlayOffset) offset = stored.overlayOffset;
       render();
     } catch {
@@ -512,6 +526,8 @@
       const next = changes.rec.newValue || null;
       if (!next || next.status === 'countdown') collapsed = false;
       rec = next;
+      // A recording is starting: learn which tab this is, then draw again.
+      if (rec && myTabId === null) learnTab().then(() => !retired && render());
     } else if (!(area === 'local' && (changes.lastError || changes.lastResult))) {
       return;
     }

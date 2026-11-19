@@ -4,7 +4,6 @@
 // Providers (Settings): Claude Code on this computer (your Claude plan, no API key), or an API
 // key for Anthropic, OpenAI, Google Gemini or OpenRouter, or local models through Ollama. Claude Code runs in print mode (-p), restricted (no shell or code
 // tools), with no MCP servers and no saved session, in an empty working folder.
-import Anthropic from '@anthropic-ai/sdk';
 import { isPrimaryNetwork } from './storage/local.js';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -160,7 +159,8 @@ export class ReportWriter {
   }
 
   async cliStatus() {
-    if (this.cliChecked && Date.now() - this.cliChecked.at < 60_000) return this.cliChecked.value;
+    // Starting claude.exe just to read its version is slow: remember the answer for 10 minutes.
+    if (this.cliChecked && Date.now() - this.cliChecked.at < 10 * 60_000) return this.cliChecked.value;
     let value;
     try {
       value = { available: true, version: (await run(this.cmd, ['--version'], { timeoutMs: 15_000 })).trim() };
@@ -266,7 +266,8 @@ export class ReportWriter {
     try {
       const raw = await run(
         this.cmd,
-        ['-p', '--output-format', 'json', '--restricted', '--strict-mcp-config', '--no-session-persistence', '--model', this.model, '--system-prompt', system],
+        // No tools: a report needs none, and leaving them out cuts the prompt from ~14k tokens to <1k.
+        ['-p', '--output-format', 'json', '--restricted', '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--model', this.model, '--system-prompt', system],
         { input: prompt, cwd, timeoutMs: 150_000 },
       );
       let parsed;
@@ -277,12 +278,17 @@ export class ReportWriter {
       }
       if (parsed.is_error || !parsed.result) throw fail(parsed.result || 'Claude Code could not write the report. Is it signed in?', 502);
       return { text: parsed.result, model: Object.keys(parsed.modelUsage || {})[0] || this.model };
+    } catch (err) {
+      this.cliChecked = null; // installed or removed since: check again next time
+      throw err;
     } finally {
       await fs.rm(cwd, { recursive: true, force: true }).catch(() => {});
     }
   }
 
   async callAnthropic(prompt, system, maxTokens) {
+    // Loaded only when used: it takes ~0.5 s and ~17 MB, and most setups never need it.
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
     const client = new Anthropic({ apiKey: this.keyFor('anthropic') });
     const model = this.prefs.models.anthropic || 'claude-opus-5-5';
     let response;
@@ -374,7 +380,7 @@ Output ONLY the report in Markdown, exactly in this structure, with no preamble 
 # <Title>
 
 ## Description
-<2-4 plain sentences: what is wrong (or what could be better) and why it matters to the user.>
+<2-4 plain sentences stating directly what is wrong (or what could be better) and why it matters to the user. Never refer to "the reporter".>
 
 ## Preconditions
 - <starting page / state needed>
@@ -412,6 +418,7 @@ Content rules:
 - For a suggestion, "Actual result" is the current behaviour and "Expected result" is the suggested behaviour; still list the steps that show where it applies.
 - Only mention console errors or failed requests that plausibly relate to the problem, briefly, in "Actual result" (no links). Quote error messages briefly.
 - If the reporter's expectation is not given, state the reasonable expectation implied by the problem.
+- Write the report itself, not a summary of what someone said. Never mention the reporter, the person who wrote the description, or the recording ("The reporter wants", "the user says", "according to the description", "they would like"). State the problem and the wanted behaviour directly, e.g. "Each user should be able to connect at most 2 authenticator apps." (here "user" means the app's end user, which is fine).
 - Plain, friendly English. No speculation about root causes in code unless the errors make it obvious, then one short sentence in the Description.`;
 
 function buildPrompt(c) {

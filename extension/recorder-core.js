@@ -200,7 +200,10 @@ export class Recorder {
         this.source = this.stream;
         this.stream = new MediaStream([cropTrack(video, crop), ...this.source.getAudioTracks()]);
       }
-      const env = await collectEnvironment({ captureLocation });
+      // The location lookup can take seconds: it runs alongside the recording and is added when
+      // the recording is saved, so the countdown starts at once.
+      this.locationAsked = captureLocation ? collectEnvironment({ captureLocation: true }).then((e) => e.location, () => undefined) : null;
+      const env = await collectEnvironment({ captureLocation: false });
       const scale = crop && settings.width ? Math.min(settings.width / crop.vw, settings.height / crop.vh) : 1;
       const captureSize = crop ? { width: Math.round(crop.w * scale), height: Math.round(crop.h * scale) } : { width: settings.width, height: settings.height };
       this.env = { ...env, captureSize, displaySurface: settings.displaySurface };
@@ -325,14 +328,20 @@ export class Recorder {
     this.stopRequestedAt = this.state === 'paused' ? this.pausedAt : Date.now();
     this.state = 'stopping';
     this.finishing = (async () => {
+      // Give late event batches (flushed by pages at the moment of Stop) a moment to arrive,
+      // counted from Stop, alongside the last uploads rather than after them.
+      const grace = new Promise((r) => setTimeout(r, 400));
       if (this.mediaRecorder.state !== 'inactive') this.mediaRecorder.stop();
       await this.stopped;
       this.release();
       const endedAt = Date.now();
       await this.queue;
       if (this.uploadError) throw this.uploadError;
-      // Give late event batches (flushed by pages at the moment of Stop) a moment to arrive.
-      await new Promise((r) => setTimeout(r, 400));
+      await grace;
+      if (this.locationAsked) {
+        const location = await this.locationAsked;
+        if (location) this.env = { ...this.env, location };
+      }
       const result = await this.withRetry(() => this.api(
         'POST',
         `/api/recordings/${this.id}/finalize`,

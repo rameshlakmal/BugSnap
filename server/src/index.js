@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'node:http';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -32,8 +33,11 @@ function applySetup() {
 applySetup();
 const writer = new ReportWriter({ command: config.claudePath, model: config.aiModel, dataDir: config.dataDir, envApiKey: config.anthropicApiKey });
 await writer.load();
+// Check Claude Code now (starting it takes ~1 s), so the first report or settings page doesn't wait.
+if (writer.prefs?.provider === 'claude-code') writer.cliStatus().catch(() => {});
 const github = new GitHub({ dataDir: config.dataDir, envToken: config.githubToken });
 await github.load();
+github.warm();
 const integrations = new Integrations({ dataDir: config.dataDir });
 await integrations.load();
 const auth = new Auth({ dataDir: config.dataDir, required: config.requireLogin, legacyToken: config.uploadToken });
@@ -342,7 +346,7 @@ app.post('/api/recordings/:id/finalize-shot', requireUploadToken, express.json({
     const body = req.body || {};
     const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
     // The thumbnail is rebuilt in the background so autosaves answer quickly.
-    makeImagePoster({ ffmpegPath: config.ffmpegPath, imagePath, posterPath: storage.file(id, 'poster.jpg') }).catch(() => {});
+    schedulePoster(id, imagePath);
     const record = await storage.updateWith(id, (r) => {
       r.type = 'screenshot';
       r.status = 'ready';
@@ -505,6 +509,19 @@ function queueDriveUpload(id) {
 }
 
 // Screenshot edits save every few seconds; upload once they settle.
+// A screenshot's thumbnail: made at once the first time, then at most once per few seconds while
+// marks are being added (each one starts ffmpeg, and the editor autosaves after every change).
+const posterTimers = new Map();
+function schedulePoster(id, imagePath) {
+  const make = () => {
+    posterTimers.delete(id);
+    makeImagePoster({ ffmpegPath: config.ffmpegPath, imagePath, posterPath: storage.file(id, 'poster.jpg') }).catch(() => {});
+  };
+  clearTimeout(posterTimers.get(id));
+  if (!existsSync(storage.file(id, 'poster.jpg'))) return make();
+  posterTimers.set(id, setTimeout(make, 3000));
+}
+
 const refreshTimers = new Map();
 function scheduleDriveRefresh(id, delayMs) {
   clearTimeout(refreshTimers.get(id));
@@ -562,7 +579,7 @@ async function waitForDrive(id, ms = 20000) {
       refreshTimers.delete(id);
       queueDriveUpload(id);
     }
-    await new Promise((res) => setTimeout(res, 700));
+    await new Promise((res) => setTimeout(res, 250));
   }
 }
 
@@ -1207,7 +1224,14 @@ app.get('/api/recordings/:id/poster', (req, res) => {
 // Viewer pages
 app.get('/r/:id', (req, res) => res.sendFile(path.join(config.publicDir, 'viewer.html')));
 app.get('/settings', localOnly, (req, res) => res.sendFile(path.join(config.publicDir, 'settings.html')));
-app.use(express.static(config.publicDir, { index: 'index.html' }));
+app.use(express.static(config.publicDir, {
+  index: 'index.html',
+  // Fonts and icons never change under the same name: no need to ask again on every page.
+  // Scripts and styles are still checked each load (a quick 304), so updates show at once.
+  setHeaders: (res, file) => {
+    if (/\.(woff2|png|ico)$/i.test(file)) res.set('Cache-Control', 'public, max-age=604800');
+  },
+}));
 
 app.use((err, req, res, _next) => {
   const status = err.status || err.statusCode || 500;
@@ -1249,3 +1273,18 @@ server.on('error', (err) => {
   }
   throw err;
 });
+// Keep idle connections open a minute (Node's default is 5 s): autosaves and status checks reuse
+// them instead of connecting again.
+const keepAlive = (srv) => {
+  srv.keepAliveTimeout = 65 * 1000;
+  srv.headersTimeout = 70 * 1000;
+};
+keepAlive(server);
+// "localhost" tries IPv6 (::1) first. With only 127.0.0.1 open, every new connection waited
+// ~200-300 ms for that to fail. Listen on ::1 too (still only this computer can connect).
+if (config.host === '127.0.0.1') {
+  const v6 = http.createServer(app);
+  keepAlive(v6);
+  v6.on('error', () => {}); // no IPv6 on this computer, or ::1 taken: 127.0.0.1 still works
+  v6.listen(config.port, '::1');
+}

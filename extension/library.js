@@ -75,6 +75,8 @@ async function load() {
   skeleton();
   $('note').hidden = true;
   base = await serverBase();
+  // Folders are asked for at the same time as the recordings, not after.
+  const foldersAsked = api('GET', '/api/folders').catch(() => null);
   try {
     const res = await fetch(`${base}/api/recordings`, { cache: 'no-store' });
     if (res.status === 404 && inExtension) {
@@ -85,7 +87,7 @@ async function load() {
     } else {
       items = await res.json();
       source = 'server';
-      await loadFolders();
+      folders = (await foldersAsked)?.folders || [];
     }
   } catch {
     items = inExtension ? await localRecent() : null;

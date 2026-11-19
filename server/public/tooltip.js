@@ -75,11 +75,21 @@
   window.addEventListener('blur', hide);
 
   // Icon-only buttons get their tooltip as an accessible name too.
-  const label = () =>
-    document.querySelectorAll('[data-tip]:not([aria-label])').forEach((el) => {
-      if (!el.textContent.trim()) el.setAttribute('aria-label', el.getAttribute('data-tip'));
-    });
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', label);
+  const labelOne = (el) => {
+    if (!el.hasAttribute('aria-label') && !el.textContent.trim()) el.setAttribute('aria-label', el.getAttribute('data-tip'));
+  };
+  const label = (root = document) => root.querySelectorAll('[data-tip]:not([aria-label])').forEach(labelOne);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => label());
   else label();
-  new MutationObserver(label).observe(document.documentElement, { childList: true, subtree: true });
+  // Only look at what was just added (not the whole page): text changes, such as a clock
+  // ticking, happen many times a second.
+  new MutationObserver((records) => {
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.hasAttribute('data-tip')) labelOne(n);
+        if (n.firstElementChild) label(n);
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
 })();

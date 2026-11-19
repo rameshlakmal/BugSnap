@@ -140,7 +140,8 @@ const withTime = (url, sec) => `${url}${url.includes('?') ? '&' : '?'}t=${Math.f
 
 // ---------------------------------------------------------------- load
 
-async function fetchRecording() {
+/** light: status, links and details only, without the (possibly ~1 MB) logs. */
+async function fetchRecording({ light = false } = {}) {
   if (driveMode) {
     if (!id) return null;
     // index.html starts this request before any script loads (see build-viewer.js).
@@ -151,7 +152,7 @@ async function fetchRecording() {
     if (m.status === 'processing') return { status: 'uploading', meta: m.record?.meta || {}, createdAt: m.record?.createdAt, video: m.video, events: [] };
     return { ...m.record, events: m.events || [], video: m.video, posterData: m.posterData, poster: m.poster, status: 'ready' };
   }
-  const res = await fetch(`/api/recordings/${encodeURIComponent(id)}`, { cache: 'no-store' });
+  const res = await fetch(`/api/recordings/${encodeURIComponent(id)}${light ? '?events=0' : ''}`, { cache: 'no-store' });
   return res.ok ? res.json() : null;
 }
 
@@ -171,6 +172,9 @@ function hideBootWhenShown() {
     return img.complete && img.naturalWidth ? hideBoot() : (img.addEventListener('load', hideBoot, { once: true }), img.addEventListener('error', hideBoot, { once: true }));
   }
   if (video.readyState >= 2) return hideBoot();
+  // The thumbnail is already on screen (inlined in the details): show the page with it and let
+  // the video load behind the play button, instead of waiting for Drive's first frame.
+  if (driveMode ? rec.posterData : rec.hasPoster) return hideBoot();
   video.addEventListener('loadeddata', hideBoot, { once: true });
   video.addEventListener('error', hideBoot, { once: true });
 }
@@ -180,7 +184,8 @@ async function load() {
   if (driveMode) {
     document.querySelectorAll('[data-local-only]').forEach((el) => el.remove());
     // The video id is in the link, so streaming starts while the logs load.
-    if (videoParam) video.src = driveMedia(videoParam);
+    // The built page may have started it already (setting src again would restart the download).
+    if (videoParam && !video.getAttribute('src')) video.src = driveMedia(videoParam);
   }
   if (embedded) document.documentElement.classList.add('embed', `embed-${embedMode}`);
   rec = await fetchRecording().catch(() => null);
@@ -219,9 +224,14 @@ let pollTimer = null;
 function poll() {
   clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
-    const r = await fetchRecording().catch(() => null);
+    // Nobody is looking: check again when the tab is shown (the next tick after that).
+    if (document.hidden) return;
+    let r = await fetchRecording({ light: true }).catch(() => null);
     if (!r) return;
     const becameReady = rec.status !== 'ready' && r.status === 'ready';
+    // The logs are fetched once, when the recording is ready.
+    if (becameReady && !driveMode) r = await fetchRecording().catch(() => null);
+    if (!r) return;
     if (becameReady) {
       const t = video.currentTime;
       rec = r;
@@ -258,7 +268,8 @@ function render() {
     stateEl.hidden = true;
     // Local: the version query shows edits made in the editor.
     const src = driveMode ? driveMedia(rec.video?.id || videoParam) : `/api/recordings/${encodeURIComponent(id)}/image?v=${encodeURIComponent(rec.updatedAt || '')}`;
-    if ($('shot').getAttribute('src') !== src) $('shot').src = src;
+    // Embedded, the player is hidden behind the dialog: don't download what nobody sees.
+    if (!embedded && $('shot').getAttribute('src') !== src) $('shot').src = src;
     $('shotLink').href = src;
     $('download').href = driveMode ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(rec.video?.id || videoParam)}` : src;
     if (driveMode) $('download').removeAttribute('download');
@@ -279,8 +290,8 @@ function render() {
       const src = `/api/recordings/${encodeURIComponent(id)}/video`;
       // The version query makes the browser fetch the processed file once it replaces the raw one.
       const want = `${src}?v=${encodeURIComponent(rec.videoRev ? `t${rec.videoRev}` : rec.processing ? 'p' : rec.updatedAt || '')}`;
-      if (!video.src.endsWith(want)) video.src = want;
-      if (rec.hasPoster) video.poster = `/api/recordings/${encodeURIComponent(id)}/poster`;
+      if (!embedded && !video.src.endsWith(want)) video.src = want;
+      if (rec.hasPoster && !embedded) video.poster = `/api/recordings/${encodeURIComponent(id)}/poster`;
       $('download').href = src;
       $('download').setAttribute('download', `recording-${id}.webm`);
     }
@@ -305,11 +316,14 @@ function render() {
   setCount('console', lists.console.length, lists.console.filter((e) => e.level === 'error').length, 'error');
   setCount('network', lists.network.length, lists.network.filter(isNetError).length, 'failed');
 
-  renderSteps();
-  renderConsole();
-  renderNetwork();
+  // Embedded (the create dialog) the lists are hidden: their data above is all the dialog needs.
+  if (!embedded) {
+    renderSteps();
+    renderConsole();
+    renderNetwork();
+    renderMarkers();
+  }
   renderInfo();
-  renderMarkers();
   renderReport();
   sync();
 }
@@ -1287,12 +1301,17 @@ function sync() {
   const t = video.currentTime || 0;
   const total = timelineDuration();
   const pct = total ? Math.min(100, (t / total) * 100) : 0;
-  $('clock').textContent = `${fmt(t)} / ${fmt(total)}`;
   $('played').style.width = `${pct}%`;
   $('knob').style.left = `${pct}%`;
   $('track').setAttribute('aria-valuenow', String(Math.round(t)));
   $('track').setAttribute('aria-valuemax', String(Math.round(total)));
-  $('copyAtTime').querySelector('span:last-child').textContent = `Copy link at ${fmt(t)}`;
+  // Text is only written when it changes (each write is a DOM change other code reacts to).
+  const clock = `${fmt(t)} / ${fmt(total)}`;
+  if (sync.clock !== clock) {
+    sync.clock = clock;
+    $('clock').textContent = clock;
+    $('copyAtTime').querySelector('span:last-child').textContent = `Copy link at ${fmt(t)}`;
+  }
 
   const list = $(`list-${activeTab}`);
   if (!list) return;
@@ -1389,10 +1408,12 @@ track.addEventListener('pointerdown', (e) => {
   const up = () => {
     track.classList.remove('drag');
     track.removeEventListener('pointermove', move);
+    track.removeEventListener('pointerup', up);
+    track.removeEventListener('pointercancel', up);
   };
   track.addEventListener('pointermove', move);
-  track.addEventListener('pointerup', up, { once: true });
-  track.addEventListener('pointercancel', up, { once: true });
+  track.addEventListener('pointerup', up);
+  track.addEventListener('pointercancel', up);
 });
 track.addEventListener('pointermove', (e) => {
   const total = timelineDuration();
@@ -1486,11 +1507,13 @@ $('search').addEventListener('input', applyFilter);
     const up = () => {
       document.body.classList.remove('resizing');
       handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
       save();
     };
     handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up, { once: true });
-    handle.addEventListener('pointercancel', up, { once: true });
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
   });
   handle.addEventListener('dblclick', () => {
     layout.style.removeProperty('--side-w');
@@ -1655,7 +1678,8 @@ function openReview() {
   clearInterval(openReview.timer);
   openReview.timer = setInterval(async () => {
     if ($('review').hidden) return clearInterval(openReview.timer);
-    const r = await fetchRecording().catch(() => null);
+    if (document.hidden) return;
+    const r = await fetchRecording({ light: true }).catch(() => null);
     if (!r) return;
     rec = { ...rec, drive: r.drive, shareUrl: r.shareUrl, driveConnected: r.driveConnected, status: r.status };
     $('rLink').value = shareLink();
@@ -2127,6 +2151,8 @@ async function loadRepoMeta(repo) {
 }
 
 let ghBodyEdited = false;
+let ghAiFilled = false; // written with AI since the form opened
+let ghKindPicked = false; // Bug / Suggestion chosen by hand since the form opened
 let ghAiLabel = 'Claude';
 
 /** "# Title\n\nbody" -> title field + description field. */
@@ -2190,6 +2216,7 @@ async function writeGhWithClaude() {
     const link = shareLink();
     if (link && !$('ghBody').value.includes(link)) $('ghBody').value += `\n\n**${isShot() ? 'Screenshot' : 'Recording'}:** ${link}`;
     ghBodyEdited = false;
+    ghAiFilled = true;
     hint.textContent = `Written by ${ghAiLabel}`;
     // Match the label to the report type when the repo has one.
     if (ghState.meta) {
@@ -2229,6 +2256,11 @@ async function openGitHub({ inline = false } = {}) {
   setGhDone(false);
   $('ghFoot').hidden = false;
   $('ghCreate').disabled = false;
+  // The form is usable while repos and the draft load: never overwrite what is typed meanwhile.
+  ghBodyEdited = false;
+  ghAiFilled = false;
+  ghKindPicked = false;
+  if (!$('ghWhat').value) $('ghWhat').value = $('what').value || rec.meta?.description || '';
   const status = await ghJson('/api/github').catch(() => ({ configured: false }));
   $('ghSetup').hidden = status.configured;
   $('ghFields').hidden = !status.configured;
@@ -2242,6 +2274,9 @@ async function openGitHub({ inline = false } = {}) {
   $('ghProjects').hidden = true;
   setPickVal($('ghRepo'), [placeholder('Loading repositories…')]);
   resetMetaPicks(true);
+  // Repositories load alongside the draft rather than after it.
+  const reposAsked = ghJson('/api/github/repos');
+  reposAsked.catch(() => {});
   try {
     // Unsaved edits in the Report tab go into the issue too.
     const draft = await ghJson(`/api/recordings/${encodeURIComponent(id)}/github/draft`);
@@ -2255,19 +2290,22 @@ async function openGitHub({ inline = false } = {}) {
     }
     // Unsaved Report tab edits first, then a saved report, else the template filled from the recording
     // (preconditions, steps, attachments), so the issue is useful before anything is written.
-    if (reportDirty) fillGhFromMarkdown($('report').value, draft.title);
+    if (ghBodyEdited || ghAiFilled) {
+      /* typed or written with AI while the draft loaded: keep it */
+    } else if (reportDirty) fillGhFromMarkdown($('report').value, draft.title);
     else if (draft.hasReport) {
       $('ghTitle').value = draft.title;
       $('ghBody').value = draft.body;
     } else fillGhFromMarkdown(buildReport(), draft.title);
-    ghBodyEdited = false;
-    $('ghWhat').value = $('what').value || rec.meta?.description || '';
-    setGhKind(rec.report?.kind || rec.meta?.kind || 'bug');
-    $('ghAiHint').textContent = '';
-    $('ghAiHint').className = 'ai-hint';
-    $('ghWrite').classList.remove('armed');
-    $('ghWrite').disabled = false;
-    $('ghWrite').querySelector('span:last-child').textContent = rec.report?.model ? 'Rewrite with Claude' : 'Write with Claude';
+    if (!$('ghWhat').value) $('ghWhat').value = $('what').value || rec.meta?.description || '';
+    if (!ghKindPicked) setGhKind(rec.report?.kind || rec.meta?.kind || 'bug');
+    if (!$('ghWrite').classList.contains('busy') && !ghAiFilled) {
+      $('ghAiHint').textContent = '';
+      $('ghAiHint').className = 'ai-hint';
+      $('ghWrite').classList.remove('armed');
+      $('ghWrite').disabled = false;
+      $('ghWrite').querySelector('span:last-child').textContent = rec.report?.model ? 'Rewrite with Claude' : 'Write with Claude';
+    }
     fetch('/api/ai')
       .then((r) => r.json())
       .then((s) => {
@@ -2280,7 +2318,7 @@ async function openGitHub({ inline = false } = {}) {
       })
       .catch(() => {});
     if (!inline) setTimeout(() => $('ghWhat').focus(), 30);
-    const repos = await ghJson('/api/github/repos');
+    const repos = await reposAsked;
     ghState.repos = repos;
     if (!repos.length) {
       renderRepoPick();
@@ -2424,7 +2462,7 @@ if (!driveMode) {
       onClose: () => $('ghBoards').lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
     });
   });
-  document.querySelectorAll('[data-ghkind]').forEach((b) => b.addEventListener('click', () => setGhKind(b.dataset.ghkind)));
+  document.querySelectorAll('[data-ghkind]').forEach((b) => b.addEventListener('click', () => ((ghKindPicked = true), setGhKind(b.dataset.ghkind))));
   $('ghWrite').addEventListener('click', writeGhWithClaude);
   $('ghWhat').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -3041,7 +3079,8 @@ function crTick() {
     crVideo.pause();
     crVideo.currentTime = cr.end;
   }
-  crTrimRender();
+  // While playing only the playhead moves; the labels change only when the cut does.
+  $('crHead').style.left = `${(crClamp(crVideo.currentTime || 0, 0, cr.dur || 1) / (cr.dur || 1)) * 100}%`;
   cr.raf = requestAnimationFrame(crTick);
 }
 

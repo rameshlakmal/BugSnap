@@ -51,6 +51,21 @@ globalThis.fetch = async (url, opts = {}) => {
     files.get(patch[1]).data = Buffer.from(opts.body);
     return json(200, { id: patch[1] });
   }
+  if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart') && method === 'POST') {
+    // Strict parse: parts separated by CRLF, as Google expects.
+    const boundary = /boundary=(\S+)/.exec(opts.headers['Content-Type'])[1];
+    const text = Buffer.from(opts.body).toString('utf8');
+    assert.ok(text.endsWith(`\r\n--${boundary}--`), 'multipart ends with the closing boundary');
+    const parts = text.split(`--${boundary}`).slice(1, -1).map((p) => p.replace(/^\r\n/, '').replace(/\r\n$/, ''));
+    assert.equal(parts.length, 2, 'metadata part + content part');
+    const [, metaJson] = parts[0].split('\r\n\r\n');
+    const meta = JSON.parse(metaJson);
+    const data = parts[1].split('\r\n\r\n').slice(1).join('\r\n\r\n');
+    if (meta.id && files.has(meta.id)) return json(409, { error: { message: 'A file already exists with the provided ID.' } });
+    const id = meta.id || `f${nextId++}`;
+    files.set(id, { meta, data: Buffer.from(data) });
+    return json(200, { id });
+  }
   if (url.startsWith('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable')) {
     const meta = JSON.parse(opts.body);
     if (meta.id && files.has(meta.id)) return json(409, { error: { message: 'A file already exists with the provided ID.' } });
@@ -138,7 +153,30 @@ assert.ok(files.has(plain.manifestId) && files.has(plain.videoId));
 const folders = [...files.values()].filter((f) => f.meta.mimeType === 'application/vnd.google-apps.folder').length;
 assert.equal(folders, 1, 'folder reused');
 
-// 6. Delete removes the files.
+// 6. Screenshots: first publish uploads into the reserved ids; an edit replaces the PNG in place
+//    with few requests (no folder or exists checks, no second share).
+const shot = { ...record, id: 'Shot123456', type: 'screenshot' };
+const shotPng = path.join(dir, 'shot.png');
+await fs.writeFile(shotPng, Buffer.from('png-v1'));
+const shotIds = await drive.reserve(shot);
+await drive.publish({ record: shot, events: [], videoPath: shotPng, posterPath: null, reserved: shotIds });
+assert.equal(String(files.get(shotIds.videoId).data), 'png-v1', 'screenshot uploaded into its reserved id');
+await fs.writeFile(shotPng, Buffer.from('png-v2'));
+let calls = 0;
+const counted = globalThis.fetch;
+globalThis.fetch = (u, o) => (String(u).includes('oauth2') || calls++, counted(u, o));
+const again = await drive.publish({ record: { ...shot, meta: { ...shot.meta, title: 'Edited' } }, events: [], videoPath: shotPng, posterPath: null, reserved: shotIds });
+globalThis.fetch = counted;
+assert.equal(again.videoId, shotIds.videoId, 'same link after an edit');
+assert.equal(String(files.get(shotIds.videoId).data), 'png-v2', 'edited image replaced in place');
+assert.equal(JSON.parse(files.get(shotIds.manifestId).data).record.meta.title, 'Edited');
+assert.equal(calls, 2, `an edited screenshot republishes with 2 requests (was 7), got ${calls}`);
+// A deleted file on Drive is uploaded again instead of failing.
+files.delete(shotIds.videoId);
+await drive.publish({ record: shot, events: [], videoPath: shotPng, posterPath: null, reserved: shotIds });
+assert.equal(String(files.get(shotIds.videoId).data), 'png-v2', 'missing screenshot uploaded again');
+
+// 7. Delete removes the files.
 await drive.deleteFiles([reserved.manifestId, reserved.videoId]);
 assert.ok(!files.has(reserved.manifestId) && !files.has(reserved.videoId), 'files deleted');
 

@@ -14,6 +14,12 @@ if (inPanel) {
   const report = () => parent.postMessage({ source: 'screenrec-panel', type: 'height', value: Math.ceil(document.body.getBoundingClientRect().height) }, '*');
   new ResizeObserver(report).observe(document.body);
   addEventListener('keydown', (e) => e.key === 'Escape' && closeUi());
+} else {
+  // Opened as Chrome's plain popup (the fallback for pages that block the in-page panel): clear
+  // the fallback so the next click tries the in-page panel again.
+  chrome.tabs.query({ active: true, currentWindow: true })
+    .then(([tab]) => tab && chrome.action.setPopup({ tabId: tab.id, popup: '' }))
+    .catch(() => {});
 }
 
 // Bundled Phosphor icons into [data-icon] slots.
@@ -78,9 +84,11 @@ function drawThumb(entry, serverUrl) {
 }
 
 async function render() {
-  const { rec } = await chrome.storage.session.get('rec');
-  const { lastResult, lastError } = await chrome.storage.local.get(['lastResult', 'lastError']);
-  const settings = await loadSettings();
+  const [{ rec }, { lastResult, lastError }, settings] = await Promise.all([
+    chrome.storage.session.get('rec'),
+    chrome.storage.local.get(['lastResult', 'lastError']),
+    loadSettings(),
+  ]);
 
   const busy = !!rec;
   $('idle').hidden = busy;
@@ -147,9 +155,13 @@ async function openLibrary() {
   closeUi();
 }
 
-function openLast() {
+/** Open the last capture at its share link; the local page only when there is no share link. */
+async function openLast() {
   if (!lastUrl) return;
-  send({ type: 'open:url', url: lastUrl }).then(() => closeUi(), (e) => showError(e.message));
+  const { lastResult } = await chrome.storage.local.get('lastResult');
+  let url = lastResult?.shareUrl;
+  if (!url && lastResult?.id) url = (await send({ type: 'share:link', id: lastResult.id }).catch(() => null))?.url;
+  send({ type: 'open:url', url: url || lastUrl }).then(() => closeUi(), (e) => showError(e.message));
 }
 
 $('recTab').addEventListener('click', () => start('tab'));
@@ -253,4 +265,7 @@ $('openSettings').addEventListener('click', () => {
   render();
 })();
 
-chrome.storage.onChanged.addListener(() => render());
+// Redraw only for what this popup shows (not, say, the recent list or the theme).
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.rec || changes.lastResult || changes.lastError || changes.settings) render();
+});

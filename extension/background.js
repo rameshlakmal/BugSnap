@@ -26,12 +26,16 @@ chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONT
 let recCache; // undefined = not loaded yet in this worker lifetime
 
 async function getRec() {
-  if (recCache === undefined) recCache = (await chrome.storage.session.get('rec')).rec || null;
+  if (recCache === undefined) {
+    recCache = (await chrome.storage.session.get('rec')).rec || null;
+    watchBrowser(recCache);
+  }
   return recCache;
 }
 
 async function setRec(rec) {
   recCache = rec || null;
+  watchBrowser(recCache);
   if (rec) await chrome.storage.session.set({ rec });
   else await chrome.storage.session.remove('rec');
 }
@@ -191,23 +195,40 @@ function toBase64(buffer) {
   return btoa(s);
 }
 
+// Screenshot images wait in the extension's own cache, not in chrome.storage: every storage change
+// is copied to every open tab (several MB per capture, several times), and the session store is
+// capped at 10 MB. Only small details go into session storage.
+const SNAP_CACHE = 'bugsnap-snap';
+const snapUrl = (name) => `https://bugsnap.invalid/${name}`;
+async function putSnapImage(name, blob) {
+  const cache = await caches.open(SNAP_CACHE);
+  await cache.put(snapUrl(name), new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png' } }));
+}
+async function takeSnapImage(name, { keep = false } = {}) {
+  const cache = await caches.open(SNAP_CACHE);
+  const res = await cache.match(snapUrl(name));
+  if (!keep) await cache.delete(snapUrl(name));
+  return res ? res.blob() : null;
+}
+
 /**
  * Capture the visible tab first (so nothing of ours is in it), then let the user pick an area
- * on the page. The capture waits in session storage until the selection comes back.
+ * on the page. The capture waits in the extension's cache until the selection comes back.
  */
-async function startSnap(tabId, mode = 'shot') {
+async function startSnap(tabId, mode = 'shot', { fromShortcut = false } = {}) {
   const tab = await chrome.tabs.get(tabId);
   if (!/^(https?|file):/.test(tab.url || '')) throw new Error("This page can't be captured. Open a website first.");
   // The bar is already up (shortcut pressed twice): capturing again would photograph the bar.
   const [{ result: open } = {}] = await chrome.scripting.executeScript({ target: { tabId }, func: () => !!window.__bugsnapSnip }).catch(() => []);
   if (open) return;
-  // Give the panel a moment to close so it isn't in the picture.
-  await new Promise((r) => setTimeout(r, 220));
+  // Give the panel a moment to close so it isn't in the picture (the shortcut opens no panel).
+  if (!fromShortcut) await new Promise((r) => setTimeout(r, 220));
   const [image, meta] = await Promise.all([
     chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }),
     buildMeta('screenshot', tabId),
   ]);
-  await chrome.storage.session.set({ snapPending: { tabId, windowId: tab.windowId, image, meta: { ...meta, type: 'screenshot', takenAt: new Date().toISOString() } } });
+  await putSnapImage('pending', await (await fetch(image)).blob());
+  await chrome.storage.session.set({ snapPending: { tabId, windowId: tab.windowId, meta: { ...meta, type: 'screenshot', takenAt: new Date().toISOString() } } });
   await chrome.scripting.executeScript({ target: { tabId }, func: (m) => (window.__bugsnapSnipMode = m), args: [mode] });
   await chrome.scripting.executeScript({ target: { tabId }, files: ['lib/icons.js', 'snip.js'] });
 }
@@ -215,6 +236,7 @@ async function startSnap(tabId, mode = 'shot') {
 /** The capture bar asked to record: an area of the tab, the whole tab, or the screen. */
 async function startFromBar(msg, tabId) {
   await chrome.storage.session.remove('snapPending');
+  await takeSnapImage('pending').catch(() => {});
   try {
     if (!tabId) throw new Error('No tab to record.');
     if (msg.target === 'desktop') return await startRecording({ mode: 'desktop', tabId });
@@ -232,20 +254,26 @@ async function startFromBar(msg, tabId) {
 async function finishSnap({ rect, vw, vh }, tabId) {
   const { snapPending: p } = await chrome.storage.session.get('snapPending');
   await chrome.storage.session.remove('snapPending');
-  if (!p || p.tabId !== tabId) return;
-  const bitmap = await createImageBitmap(await (await fetch(p.image)).blob());
+  const captured = await takeSnapImage('pending');
+  if (!p || p.tabId !== tabId || !captured) return;
+  const bitmap = await createImageBitmap(captured);
   // The capture is in device pixels; the selection is in CSS pixels.
   const scale = bitmap.width / vw;
   const sx = Math.max(0, Math.round(rect.x * scale));
   const sy = Math.max(0, Math.round(rect.y * scale));
   const sw = Math.min(bitmap.width - sx, Math.round(rect.w * scale));
   const sh = Math.min(bitmap.height - sy, Math.round(rect.h * scale));
-  const canvas = new OffscreenCanvas(sw, sh);
-  canvas.getContext('2d').drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
-  const png = await canvas.convertToBlob({ type: 'image/png' });
-  const image = `data:image/png;base64,${toBase64(await png.arrayBuffer())}`;
+  let png = captured;
+  // The whole view selected: the capture is the image as it is, with no crop and no re-encode.
+  if (sx > 0 || sy > 0 || sw < bitmap.width || sh < bitmap.height) {
+    const canvas = new OffscreenCanvas(sw, sh);
+    canvas.getContext('2d').drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+    png = await canvas.convertToBlob({ type: 'image/png' });
+  }
+  bitmap.close();
+  await putSnapImage('draft', png);
   await chrome.storage.session.set({
-    snapDraft: { image, width: sw, height: sh, meta: { ...p.meta, selection: rect, viewport: p.meta.viewport || { width: vw, height: vh }, scale } },
+    snapDraft: { width: sw, height: sh, meta: { ...p.meta, selection: rect, viewport: p.meta.viewport || { width: vw, height: vh }, scale } },
   });
   // The editor opens over the page it was taken from (as its own tab where that isn't possible).
   await showCreateDialog('snap.html?embed=1', tabId, 'snap.html');
@@ -453,15 +481,11 @@ const netHeaders = (list) =>
 
 const netWanted = (d) => d.tabId >= 0 && /^(https?|wss?):/.test(d.url) && recCache && ['recording', 'paused', 'stopping'].includes(recCache.status) && (recCache.mode !== 'tab' || d.tabId === recCache.tabId);
 
-chrome.webRequest.onSendHeaders.addListener(
-  (d) => {
-    if (!netWanted(d)) return;
-    netStarts.set(d.requestId, { ts: d.timeStamp, headers: netHeaders(d.requestHeaders) });
-    if (netStarts.size > 5000) netStarts.delete(netStarts.keys().next().value);
-  },
-  { urls: ['<all_urls>'] },
-  ['requestHeaders'],
-);
+function netStart(d) {
+  if (!netWanted(d)) return;
+  netStarts.set(d.requestId, { ts: d.timeStamp, headers: netHeaders(d.requestHeaders) });
+  if (netStarts.size > 5000) netStarts.delete(netStarts.keys().next().value);
+}
 
 function netDone(d, failed) {
   const start = netStarts.get(d.requestId);
@@ -490,16 +514,15 @@ function netDone(d, failed) {
     durationMs: Math.max(0, Math.round(d.timeStamp - startedAt)),
   });
 }
-chrome.webRequest.onCompleted.addListener((d) => netDone(d, false), { urls: ['<all_urls>'] }, ['responseHeaders']);
-chrome.webRequest.onErrorOccurred.addListener((d) => netDone(d, true), { urls: ['<all_urls>'] });
-getRec(); // the request listeners above read the cached state
+const netOk = (d) => netDone(d, false);
+const netFailed = (d) => netDone(d, true);
 
 const pendingTransitions = new Map();
 
-chrome.webNavigation.onCommitted.addListener((d) => {
+function navCommitted(d) {
   if (d.frameId !== 0) return;
   pendingTransitions.set(d.tabId, { type: d.transitionType, qualifiers: d.transitionQualifiers || [], ts: Date.now() });
-});
+}
 
 function shortUrl(url) {
   try {
@@ -510,7 +533,7 @@ function shortUrl(url) {
   }
 }
 
-chrome.webNavigation.onCompleted.addListener(async (d) => {
+async function navCompleted(d) {
   if (d.frameId !== 0) return;
   const t = pendingTransitions.get(d.tabId) || { type: 'link', qualifiers: [], ts: Date.now() };
   pendingTransitions.delete(d.tabId);
@@ -527,9 +550,9 @@ chrome.webNavigation.onCompleted.addListener(async (d) => {
   else if (t.qualifiers.includes('server_redirect') || t.qualifiers.includes('client_redirect')) text = `Is redirected to ${where}`;
   else text = `Navigates to ${where}`;
   emit({ type: 'navigation', ts: t.ts, tabId: d.tabId, url: d.url, title, transition: t.type, text });
-});
+}
 
-chrome.webNavigation.onHistoryStateUpdated.addListener(async (d) => {
+async function navHistory(d) {
   if (d.frameId !== 0) return;
   const rec = await getRec();
   if (!rec || rec.status !== 'recording') return;
@@ -540,15 +563,48 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(async (d) => {
     const title = tab?.title && tab.title !== d.url ? tab.title : '';
     emit({ type: 'navigation', ts, tabId: d.tabId, url: d.url, title, transition: 'history', text: `Navigates to ${shortUrl(d.url)}${title ? ` ("${title}")` : ''}` });
   }, 400);
-});
+}
 
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+async function tabActivated({ tabId }) {
   const rec = await getRec();
   if (!rec || rec.status !== 'recording' || rec.mode !== 'desktop') return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab) return;
   emit({ type: 'navigation', ts: Date.now(), tabId, url: tab.url, title: tab.title, transition: 'tab_switch', text: `Switches to the "${tab.title || shortUrl(tab.url)}" tab` });
-});
+}
+
+/**
+ * Listen to the browser's requests and navigations only while a recording exists. Registered all
+ * the time, they woke this worker for every request in every tab, all day. (While recording, the
+ * recorder page pings every 20 s so the worker stays awake; listeners added later do not wake it.)
+ */
+let watching = null; // the tab filter in use, or null when not listening
+function watchBrowser(rec) {
+  const want = rec ? (rec.mode === 'tab' && rec.tabId ? { tabId: rec.tabId } : {}) : null;
+  if (JSON.stringify(want) === JSON.stringify(watching)) return;
+  if (watching) {
+    chrome.webRequest.onSendHeaders.removeListener(netStart);
+    chrome.webRequest.onCompleted.removeListener(netOk);
+    chrome.webRequest.onErrorOccurred.removeListener(netFailed);
+    chrome.webNavigation.onCommitted.removeListener(navCommitted);
+    chrome.webNavigation.onCompleted.removeListener(navCompleted);
+    chrome.webNavigation.onHistoryStateUpdated.removeListener(navHistory);
+    chrome.tabs.onActivated.removeListener(tabActivated);
+    pendingTransitions.clear();
+    netStarts.clear();
+  }
+  watching = want;
+  if (!want) return;
+  const filter = { urls: ['<all_urls>'], ...want };
+  chrome.webRequest.onSendHeaders.addListener(netStart, filter, ['requestHeaders']);
+  chrome.webRequest.onCompleted.addListener(netOk, filter, ['responseHeaders']);
+  chrome.webRequest.onErrorOccurred.addListener(netFailed, filter);
+  chrome.webNavigation.onCommitted.addListener(navCommitted);
+  chrome.webNavigation.onCompleted.addListener(navCompleted);
+  chrome.webNavigation.onHistoryStateUpdated.addListener(navHistory);
+  chrome.tabs.onActivated.addListener(tabActivated);
+}
+getRec(); // after a restart mid-recording, listen again
 
 // ---------------------------------------------------------------- messages
 
@@ -603,7 +659,17 @@ const handlers = {
   'settings:open': (msg) =>
     /^[a-z]{2,20}$/.test(msg?.section || '') ? chrome.tabs.create({ url: chrome.runtime.getURL(`settings.html#${msg.section}`) }) : chrome.runtime.openOptionsPage(),
   'snip:done': (msg, sender) => finishSnap(msg, sender.tab?.id),
-  'snip:cancel': () => chrome.storage.session.remove('snapPending'),
+  'snip:cancel': async () => {
+    await chrome.storage.session.remove('snapPending');
+    await takeSnapImage('pending').catch(() => {});
+  },
+  // The capture bar's frozen view of the page: sent to that tab only, as a data URL.
+  'snip:image': async (_msg, sender) => {
+    const { snapPending: p } = await chrome.storage.session.get('snapPending');
+    if (!p || p.tabId !== sender.tab?.id) return null;
+    const blob = await takeSnapImage('pending', { keep: true });
+    return blob ? `data:${blob.type || 'image/png'};base64,${toBase64(await blob.arrayBuffer())}` : null;
+  },
   'snip:record': (msg, sender) => startFromBar(msg, sender.tab?.id),
   // The editor saved a screenshot: list it with the recordings.
   'snap:saved': async (msg) => {
@@ -683,7 +749,7 @@ const handlers = {
     const entry = {
       id: msg.id,
       viewerUrl: msg.viewerUrl,
-      shareUrl: await shareUrlOf(msg.id),
+      shareUrl: null, // filled in below, once the server has it (the dialog doesn't wait for it)
       title: rec?.pending?.meta?.title || 'Recording',
       mode: rec?.mode,
       durationMs: msg.durationMs || null,
@@ -692,13 +758,25 @@ const handlers = {
     // The create dialog opens over the page (no "Saved" bar).
     entry.dialog = true;
     await chrome.storage.local.set({ recent: [entry, ...recent.filter((r) => r.id !== msg.id)].slice(0, 50), lastResult: entry });
-    await cleanup(rec);
-    if (/^[A-Za-z0-9]{6,20}$/.test(String(msg.id || ''))) await showCreateDialog(`review.html?id=${msg.id}`, rec?.tabId).catch(() => {});
+    const valid = /^[A-Za-z0-9]{6,20}$/.test(String(msg.id || ''));
+    await Promise.all([
+      cleanup(rec),
+      valid ? showCreateDialog(`review.html?id=${msg.id}`, rec?.tabId).catch(() => {}) : null,
+    ]);
+    const shareUrl = await shareUrlOf(msg.id);
+    if (shareUrl) {
+      const stored = await chrome.storage.local.get(['recent', 'lastResult']);
+      const patch = (e) => (e && e.id === msg.id ? { ...e, shareUrl } : e);
+      await chrome.storage.local.set({ recent: (stored.recent || []).map(patch), lastResult: patch(stored.lastResult) });
+    }
   },
 
   'recorder:discarded': async () => {
     await cleanup(await getRec());
   },
+
+  // Sent every 20 s while recording: receiving it is all it takes to keep this worker awake.
+  'recorder:alive': () => true,
 
   'recorder:error': async (msg) => {
     const rec = await getRec();
@@ -719,10 +797,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return true; // async reply
 });
 
-// The plain-popup fallback is per tab: drop it once the tab is on a normal page again.
-chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.url && /^(https?|file):/.test(info.url)) chrome.action.setPopup({ tabId, popup: '' }).catch(() => {});
-});
+// The plain-popup fallback is per tab; popup.js removes it when it opens, so the next click on a
+// normal page shows the in-page panel again. (A tabs.onUpdated listener did this before, but it
+// woke this worker for every title and loading change in every tab.)
 
 // Toolbar click: show the rounded in-page panel. Pages that block extensions (chrome://,
 // the Web Store, PDFs) fall back to Chrome's regular popup.
@@ -740,7 +817,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'capture-screenshot') {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab) startSnap(tab.id).catch((err) => chrome.storage.local.set({ lastError: { message: err.message, at: Date.now() } }));
+    if (tab) startSnap(tab.id, 'shot', { fromShortcut: true }).catch((err) => chrome.storage.local.set({ lastError: { message: err.message, at: Date.now() } }));
     return;
   }
   if (command === 'stop-recording') control('stop');
@@ -790,7 +867,10 @@ async function syncServerAuth() {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) syncServerAuth();
 });
-syncServerAuth();
+// The rule is kept by the browser: set it when installed or updated, at browser start, and when
+// settings change (not on every wake of this worker).
+chrome.runtime.onInstalled.addListener(() => syncServerAuth());
+chrome.runtime.onStartup.addListener(() => syncServerAuth());
 
 // Inject the lightweight UI/action scripts into tabs that were open before install/update.
 chrome.runtime.onInstalled.addListener(async () => {

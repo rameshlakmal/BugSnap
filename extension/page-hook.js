@@ -49,11 +49,17 @@
       if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
       if (value === undefined) return 'undefined';
       const seen = new WeakSet();
+      // Only MAX_TEXT characters are kept: stop walking a huge object (an app's whole state, say)
+      // once about that much has been collected, instead of turning all of it into text first.
+      let budget = MAX_TEXT * 2;
       return JSON.stringify(value, (k, v) => {
+        if (budget <= 0) return undefined;
+        budget -= String(k).length + (typeof v === 'string' ? v.length : 4);
         if (typeof v === 'object' && v !== null) {
           if (seen.has(v)) return '[circular]';
           seen.add(v);
         }
+        if (Array.isArray(v) && v.length > 50) return [...v.slice(0, 50), `… ${v.length - 50} more`];
         if (typeof k === 'string' && k && SENSITIVE_KEY.test(k) && typeof v !== 'object') return '[redacted]';
         return v;
       });
@@ -130,6 +136,9 @@
   const SECRET_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token|x-csrf-token|x-xsrf-token|x-amz-security-token)$/i;
   const SECRET_FIELD = /passw|pwd|secret|token|api[-_]?key|authorization|cookie|session|credential|otp|cvv|cvc|card.?number|ssn/i;
   const HIDDEN = '••••';
+  const BIG_JSON = 256 * 1024;
+  // "key": value (a string, number, true, false or null) in JSON text.
+  const JSON_FIELD = /"([^"\\]{1,100})"\s*:\s*("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*|true|false|null)/g;
   let netSeq = 0;
   const netId = () => `n${Date.now().toString(36)}${(netSeq++).toString(36)}`;
 
@@ -156,7 +165,14 @@
     if (bodyBytes > BODY_BUDGET) return '[not saved: this page already sent a lot of data]';
     let out = text;
     const t = text.trimStart();
-    if (/json/i.test(contentType) || t.startsWith('{') || t.startsWith('[')) {
+    if ((/json/i.test(contentType) || t.startsWith('{') || t.startsWith('[')) && text.length > BIG_JSON) {
+      // Too big to parse on the page's main thread for a body that is cut to 64 KB anyway: cut
+      // first, then hide secret fields in the kept part by pattern.
+      out = text.slice(0, MAX_NET_BODY).replace(JSON_FIELD, (m, key) => (SECRET_FIELD.test(key) ? `"${key}":"${HIDDEN}"` : m));
+      out = `${out}… [${text.length - out.length} more chars]`;
+      bodyBytes += out.length;
+      return out;
+    } else if (/json/i.test(contentType) || t.startsWith('{') || t.startsWith('[')) {
       try {
         out = JSON.stringify(hideSecretsInJson(JSON.parse(text)));
       } catch {
@@ -241,7 +257,8 @@
         };
         const finish = async () => {
           entry.requestBody = await reqBodyPromise;
-          if (res.type !== 'opaque' && readableType(ct) && !isStream(ct) && !(entry.size > 5e6)) {
+          if (bodyBytes > BODY_BUDGET) entry.responseBody = '[not saved: this page already sent a lot of data]';
+          else if (res.type !== 'opaque' && readableType(ct) && !isStream(ct) && !(entry.size > 5e6)) {
             try {
               const text = await res.clone().text();
               entry.bodySize = text.length;
@@ -321,7 +338,7 @@
           try {
             let text;
             if (this.responseType === '' || this.responseType === 'text') text = String(this.responseText || '');
-            else if (this.responseType === 'json') text = JSON.stringify(this.response);
+            else if (this.responseType === 'json') text = bodyBytes > BODY_BUDGET ? undefined : JSON.stringify(this.response);
             else if (this.responseType === 'document' && this.responseXML) text = this.responseXML.documentElement?.outerHTML;
             if (typeof text === 'string' && readableType(resCt)) {
               entry.bodySize = text.length;
